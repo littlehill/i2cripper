@@ -209,7 +209,7 @@ int main(int argc, char *argv[])
 	int yes = 0, version = 0, list = 0;
 
 	/* handle (optional) flags first */
-	while ((opt = getopt(argc, argv, "FValqry")) != -1) {
+	while ((opt = getopt(argc, argv, "FVahlqry")) != -1) {
 		switch (opt) {
 		case 'V': version = 1; break;
 		case 'y': yes = 1; break;
@@ -242,9 +242,10 @@ int main(int argc, char *argv[])
 			first = 0x00;
 			last = 0x7F;
 			break;
+		case 'h':
 		case '?':
 			help();
-			exit(1);
+			exit(opt == '?');
 		}
 	}
 

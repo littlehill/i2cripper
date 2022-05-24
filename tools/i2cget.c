@@ -186,15 +186,16 @@ int main(int argc, char *argv[])
 	unsigned char block_data[I2C_SMBUS_BLOCK_MAX];
 
 	/* handle (optional) flags first */
-	while ((opt = getopt(argc, argv, "Vafy")) != -1) {
+	while ((opt = getopt(argc, argv, "Vafhy")) != -1) {
 		switch (opt) {
 		case 'V': version = 1; break;
 		case 'f': force = 1; break;
 		case 'y': yes = 1; break;
 		case 'a': all_addrs = 1; break;
+		case 'h':
 		case '?':
 			help();
-			exit(1);
+			exit(opt == '?');
 		}
 	}
 

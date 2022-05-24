@@ -141,16 +141,17 @@ int main(int argc, char *argv[])
 		msgs[i].buf = NULL;
 
 	/* handle (optional) flags first */
-	while ((opt = getopt(argc, argv, "Vafvy")) != -1) {
+	while ((opt = getopt(argc, argv, "Vafhvy")) != -1) {
 		switch (opt) {
 		case 'V': version = 1; break;
 		case 'v': verbose = 1; break;
 		case 'f': force = 1; break;
 		case 'y': yes = 1; break;
 		case 'a': all_addrs = 1; break;
+		case 'h':
 		case '?':
 			help();
-			exit(1);
+			exit(opt == '?');
 		}
 	}
 

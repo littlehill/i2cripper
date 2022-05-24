@@ -1,4 +1,4 @@
-.TH I2CGET 8 "July 2021"
+.TH I2CGET 8 "May 2022"
 .SH "NAME"
 i2cget \- read from I2C/SMBus chip registers
 
@@ -13,6 +13,9 @@ i2cget \- read from I2C/SMBus chip registers
 .br
 .B i2cget
 .B -V
+.br
+.B i2cget
+.B -h
 
 .SH DESCRIPTION
 i2cget is a small helper program to read registers visible through the I2C
@@ -22,6 +25,9 @@ bus (or SMBus).
 .TP
 .B -V
 Display the version and exit.
+.TP
+.B -h
+Display the help and exit.
 .TP
 .B -f
 Force access to the device even if it is already busy. By default, i2cget

@@ -1,4 +1,4 @@
-.TH i2ctransfer 8 "February 2017"
+.TH i2ctransfer 8 "May 2022"
 .SH "NAME"
 i2ctransfer \- send user-defined I2C messages in one transfer
 
@@ -16,6 +16,9 @@ i2ctransfer \- send user-defined I2C messages in one transfer
 .br
 .B i2ctransfer
 .B -V
+.br
+.B i2ctransfer
+.B -h
 
 .SH DESCRIPTION
 .B i2ctransfer
@@ -62,6 +65,9 @@ It will print infos about all messages sent, i.e. not only for read messages but
 .TP
 .B -V
 Display the version and exit.
+.TP
+.B -h
+Display the help and exit.
 .TP
 .B -a
 Allow using addresses between 0x00 - 0x07 and 0x78 - 0x7f. Not recommended.

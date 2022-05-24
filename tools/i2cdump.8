@@ -1,4 +1,4 @@
-.TH I2CDUMP 8 "June 2021"
+.TH I2CDUMP 8 "May 2022"
 .SH NAME
 i2cdump \- examine I2C registers
 
@@ -14,6 +14,9 @@ i2cdump \- examine I2C registers
 .br
 .B i2cdump
 .B -V
+.br
+.B i2cdump
+.B -h
 
 .SH DESCRIPTION
 i2cdump is a small helper program to examine registers
@@ -23,6 +26,9 @@ visible through the I2C bus.
 .TP
 .B -V
 Display the version and exit.
+.TP
+.B -h
+Display the help and exit.
 .TP
 .B -f
 Force access to the device even if it is already busy. By default, i2cdump

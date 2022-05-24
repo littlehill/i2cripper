@@ -168,7 +168,7 @@ int main(int argc, char *argv[])
 	int len;
 
 	/* handle (optional) flags first */
-	while ((opt = getopt(argc, argv, "Vafm:ry")) != -1) {
+	while ((opt = getopt(argc, argv, "Vafhm:ry")) != -1) {
 		switch (opt) {
 		case 'V': version = 1; break;
 		case 'f': force = 1; break;
@@ -176,9 +176,10 @@ int main(int argc, char *argv[])
 		case 'm': maskp = optarg; break;
 		case 'r': readback = 1; break;
 		case 'a': all_addrs = 1; break;
+		case 'h':
 		case '?':
 			help();
-			exit(1);
+			exit(opt == '?');
 		}
 	}
 

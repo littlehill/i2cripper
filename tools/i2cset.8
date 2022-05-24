@@ -1,4 +1,4 @@
-.TH I2CSET 8 "October 2017"
+.TH I2CSET 8 "May 2022"
 .SH "NAME"
 i2cset \- set I2C registers
 
@@ -18,6 +18,9 @@ i2cset \- set I2C registers
 .br
 .B i2cset
 .B -V
+.br
+.B i2cset
+.B -h
 
 .SH DESCRIPTION
 i2cset is a small helper program to set registers visible through the I2C
@@ -27,6 +30,9 @@ bus.
 .TP
 .B -V
 Display the version and exit.
+.TP
+.B -h
+Display the help and exit.
 .TP
 .B -f
 Force access to the device even if it is already busy. By default, i2cset

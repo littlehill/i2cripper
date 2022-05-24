@@ -1,6 +1,6 @@
 /*
     i2cget.c - A user-space program to read an I2C register.
-    Copyright (C) 2005-2021  Jean Delvare <jdelvare@suse.de>
+    Copyright (C) 2005-2022  Jean Delvare <jdelvare@suse.de>
 
     Based on i2cset.c:
     Copyright (C) 2001-2003  Frodo Looijaard <frodol@dds.nl>, and
@@ -180,25 +180,22 @@ int main(int argc, char *argv[])
 	int daddress;
 	char filename[20];
 	int pec = 0;
-	int flags = 0;
+	int opt;
 	int force = 0, yes = 0, version = 0, all_addrs = 0;
 	int length;
 	unsigned char block_data[I2C_SMBUS_BLOCK_MAX];
 
 	/* handle (optional) flags first */
-	while (1+flags < argc && argv[1+flags][0] == '-') {
-		switch (argv[1+flags][1]) {
+	while ((opt = getopt(argc, argv, "Vafy")) != -1) {
+		switch (opt) {
 		case 'V': version = 1; break;
 		case 'f': force = 1; break;
 		case 'y': yes = 1; break;
 		case 'a': all_addrs = 1; break;
-		default:
-			fprintf(stderr, "Error: Unsupported option "
-				"\"%s\"!\n", argv[1+flags]);
+		case '?':
 			help();
 			exit(1);
 		}
-		flags++;
 	}
 
 	if (version) {
@@ -206,20 +203,20 @@ int main(int argc, char *argv[])
 		exit(0);
 	}
 
-	if (argc < flags + 3)
+	if (argc < optind + 2)
 		help();
 
-	i2cbus = lookup_i2c_bus(argv[flags+1]);
+	i2cbus = lookup_i2c_bus(argv[optind]);
 	if (i2cbus < 0)
 		help();
 
-	address = parse_i2c_address(argv[flags+2], all_addrs);
+	address = parse_i2c_address(argv[optind+1], all_addrs);
 	if (address < 0)
 		help();
 
-	if (argc > flags + 3) {
+	if (argc > optind + 2) {
 		size = I2C_SMBUS_BYTE_DATA;
-		daddress = strtol(argv[flags+3], &end, 0);
+		daddress = strtol(argv[optind+2], &end, 0);
 		if (*end || daddress < 0 || daddress > 0xff) {
 			fprintf(stderr, "Error: Data address invalid!\n");
 			help();
@@ -229,8 +226,8 @@ int main(int argc, char *argv[])
 		daddress = -1;
 	}
 
-	if (argc > flags + 4) {
-		switch (argv[flags+4][0]) {
+	if (argc > optind + 3) {
+		switch (argv[optind+3][0]) {
 		case 'b': size = I2C_SMBUS_BYTE_DATA; break;
 		case 'w': size = I2C_SMBUS_WORD_DATA; break;
 		case 'c': size = I2C_SMBUS_BYTE; break;
@@ -240,19 +237,19 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "Error: Invalid mode!\n");
 			help();
 		}
-		pec = argv[flags+4][1] == 'p';
+		pec = argv[optind+3][1] == 'p';
 		if (size == I2C_SMBUS_I2C_BLOCK_DATA && pec) {
 			fprintf(stderr, "Error: PEC not supported for I2C block data!\n");
 			help();
 		}
 	}
 
-	if (argc > flags + 5) {
+	if (argc > optind + 4) {
 		if (size != I2C_SMBUS_I2C_BLOCK_DATA) {
 			fprintf(stderr, "Error: Length only valid for I2C block data!\n");
 			help();
 		}
-		length = strtol(argv[flags+5], &end, 0);
+		length = strtol(argv[optind+4], &end, 0);
 		if (*end || length < 1 || length > I2C_SMBUS_BLOCK_MAX) {
 			fprintf(stderr, "Error: Length invalid!\n");
 			help();

@@ -2,7 +2,7 @@
     i2cdetect.c - a user-space program to scan for I2C devices
     Copyright (C) 1999-2004  Frodo Looijaard <frodol@dds.nl>, and
                              Mark D. Studebaker <mdsxyz123@yahoo.com>
-    Copyright (C) 2004-2012  Jean Delvare <jdelvare@suse.de>
+    Copyright (C) 2004-2022  Jean Delvare <jdelvare@suse.de>
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -205,12 +205,12 @@ int main(int argc, char *argv[])
 	unsigned long funcs;
 	int mode = MODE_AUTO;
 	int first = 0x08, last = 0x77;
-	int flags = 0;
+	int opt;
 	int yes = 0, version = 0, list = 0;
 
 	/* handle (optional) flags first */
-	while (1+flags < argc && argv[1+flags][0] == '-') {
-		switch (argv[1+flags][1]) {
+	while ((opt = getopt(argc, argv, "FValqry")) != -1) {
+		switch (opt) {
 		case 'V': version = 1; break;
 		case 'y': yes = 1; break;
 		case 'l': list = 1; break;
@@ -242,13 +242,10 @@ int main(int argc, char *argv[])
 			first = 0x00;
 			last = 0x7F;
 			break;
-		default:
-			fprintf(stderr, "Error: Unsupported option "
-				"\"%s\"!\n", argv[1+flags]);
+		case '?':
 			help();
 			exit(1);
 		}
-		flags++;
 	}
 
 	if (version) {
@@ -261,22 +258,22 @@ int main(int argc, char *argv[])
 		exit(0);
 	}
 
-	if (argc < flags + 2) {
+	if (argc < optind + 1) {
 		fprintf(stderr, "Error: No i2c-bus specified!\n");
 		help();
 		exit(1);
 	}
-	i2cbus = lookup_i2c_bus(argv[flags+1]);
+	i2cbus = lookup_i2c_bus(argv[optind]);
 	if (i2cbus < 0) {
 		help();
 		exit(1);
 	}
 
 	/* read address range if present */
-	if (argc == flags + 4 && mode != MODE_FUNC) {
+	if (argc == optind + 3 && mode != MODE_FUNC) {
 		int tmp;
 
-		tmp = strtol(argv[flags+2], &end, 0);
+		tmp = strtol(argv[optind+1], &end, 0);
 		if (*end) {
 			fprintf(stderr, "Error: FIRST argument not a "
 				"number!\n");
@@ -291,7 +288,7 @@ int main(int argc, char *argv[])
 		}
 		first = tmp;
 
-		tmp = strtol(argv[flags+3], &end, 0);
+		tmp = strtol(argv[optind+2], &end, 0);
 		if (*end) {
 			fprintf(stderr, "Error: LAST argument not a "
 				"number!\n");
@@ -305,7 +302,7 @@ int main(int argc, char *argv[])
 			exit(1);
 		}
 		last = tmp;
-	} else if (argc != flags + 2) {
+	} else if (argc != optind + 1) {
 		help();
 		exit(1);
 	}

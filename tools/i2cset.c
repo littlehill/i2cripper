@@ -2,7 +2,7 @@
     i2cset.c - A user-space program to write an I2C register.
     Copyright (C) 2001-2003  Frodo Looijaard <frodol@dds.nl>, and
                              Mark D. Studebaker <mdsxyz123@yahoo.com>
-    Copyright (C) 2004-2012  Jean Delvare <jdelvare@suse.de>
+    Copyright (C) 2004-2022  Jean Delvare <jdelvare@suse.de>
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -162,31 +162,24 @@ int main(int argc, char *argv[])
 	int value, daddress, vmask = 0;
 	char filename[20];
 	int pec = 0;
-	int flags = 0;
+	int opt;
 	int force = 0, yes = 0, version = 0, readback = 0, all_addrs = 0;
 	unsigned char block[I2C_SMBUS_BLOCK_MAX];
 	int len;
 
 	/* handle (optional) flags first */
-	while (1+flags < argc && argv[1+flags][0] == '-') {
-		switch (argv[1+flags][1]) {
+	while ((opt = getopt(argc, argv, "Vafm:ry")) != -1) {
+		switch (opt) {
 		case 'V': version = 1; break;
 		case 'f': force = 1; break;
 		case 'y': yes = 1; break;
-		case 'm':
-			if (2+flags < argc)
-				maskp = argv[2+flags];
-			flags++;
-			break;
+		case 'm': maskp = optarg; break;
 		case 'r': readback = 1; break;
 		case 'a': all_addrs = 1; break;
-		default:
-			fprintf(stderr, "Error: Unsupported option "
-				"\"%s\"!\n", argv[1+flags]);
+		case '?':
 			help();
 			exit(1);
 		}
-		flags++;
 	}
 
 	if (version) {
@@ -194,33 +187,33 @@ int main(int argc, char *argv[])
 		exit(0);
 	}
 
-	if (argc < flags + 4)
+	if (argc < optind + 3)
 		help();
 
-	i2cbus = lookup_i2c_bus(argv[flags+1]);
+	i2cbus = lookup_i2c_bus(argv[optind]);
 	if (i2cbus < 0)
 		help();
 
-	address = parse_i2c_address(argv[flags+2], all_addrs);
+	address = parse_i2c_address(argv[optind+1], all_addrs);
 	if (address < 0)
 		help();
 
-	daddress = strtol(argv[flags+3], &end, 0);
+	daddress = strtol(argv[optind+2], &end, 0);
 	if (*end || daddress < 0 || daddress > 0xff) {
 		fprintf(stderr, "Error: Data address invalid!\n");
 		help();
 	}
 
 	/* check for command/mode */
-	if (argc == flags + 4) {
+	if (argc == optind + 3) {
 		/* Implicit "c" */
 		size = I2C_SMBUS_BYTE;
-	} else if (argc == flags + 5) {
+	} else if (argc == optind + 4) {
 		/* "c", "cp",  or implicit "b" */
-		if (!strcmp(argv[flags+4], "c")
-		 || !strcmp(argv[flags+4], "cp")) {
+		if (!strcmp(argv[optind+3], "c")
+		 || !strcmp(argv[optind+3], "cp")) {
 			size = I2C_SMBUS_BYTE;
-			pec = argv[flags+4][1] == 'p';
+			pec = argv[optind+3][1] == 'p';
 		} else {
 			size = I2C_SMBUS_BYTE_DATA;
 		}
@@ -250,11 +243,11 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "Error: Mask not supported for block writes!\n");
 				help();
 			}
-			if (argc > (int)sizeof(block) + flags + 5) {
+			if (argc > (int)sizeof(block) + optind + 4) {
 				fprintf(stderr, "Error: Too many arguments!\n");
 				help();
 			}
-		} else if (argc != flags + 6) {
+		} else if (argc != optind + 5) {
 			fprintf(stderr, "Error: Too many arguments!\n");
 			help();
 		}
@@ -270,7 +263,7 @@ int main(int argc, char *argv[])
 		break;
 	case I2C_SMBUS_BYTE_DATA:
 	case I2C_SMBUS_WORD_DATA:
-		value = strtol(argv[flags+4], &end, 0);
+		value = strtol(argv[optind+3], &end, 0);
 		if (*end || value < 0) {
 			fprintf(stderr, "Error: Data value invalid!\n");
 			help();
@@ -283,8 +276,8 @@ int main(int argc, char *argv[])
 		break;
 	case I2C_SMBUS_BLOCK_DATA:
 	case I2C_SMBUS_I2C_BLOCK_DATA:
-		for (len = 0; len + flags + 5 < argc; len++) {
-			value = strtol(argv[flags + len + 4], &end, 0);
+		for (len = 0; len + optind + 4 < argc; len++) {
+			value = strtol(argv[optind + len + 3], &end, 0);
 			if (*end || value < 0) {
 				fprintf(stderr, "Error: Data value invalid!\n");
 				help();

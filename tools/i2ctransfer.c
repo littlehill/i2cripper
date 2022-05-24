@@ -131,7 +131,7 @@ static int confirm(const char *filename, struct i2c_msg *msgs, __u32 nmsgs)
 int main(int argc, char *argv[])
 {
 	char filename[20];
-	int i2cbus, address = -1, file, arg_idx = 1, nmsgs = 0, nmsgs_sent, i;
+	int i2cbus, address = -1, file, opt, arg_idx, nmsgs = 0, nmsgs_sent, i;
 	int force = 0, yes = 0, version = 0, verbose = 0, all_addrs = 0;
 	struct i2c_msg msgs[I2C_RDRW_IOCTL_MAX_MSGS];
 	enum parse_state state = PARSE_GET_DESC;
@@ -140,21 +140,18 @@ int main(int argc, char *argv[])
 	for (i = 0; i < I2C_RDRW_IOCTL_MAX_MSGS; i++)
 		msgs[i].buf = NULL;
 
-	/* handle (optional) arg_idx first */
-	while (arg_idx < argc && argv[arg_idx][0] == '-') {
-		switch (argv[arg_idx][1]) {
+	/* handle (optional) flags first */
+	while ((opt = getopt(argc, argv, "Vafvy")) != -1) {
+		switch (opt) {
 		case 'V': version = 1; break;
 		case 'v': verbose = 1; break;
 		case 'f': force = 1; break;
 		case 'y': yes = 1; break;
 		case 'a': all_addrs = 1; break;
-		default:
-			fprintf(stderr, "Error: Unsupported option \"%s\"!\n",
-				argv[arg_idx]);
+		case '?':
 			help();
 			exit(1);
 		}
-		arg_idx++;
 	}
 
 	if (version) {
@@ -162,6 +159,7 @@ int main(int argc, char *argv[])
 		exit(0);
 	}
 
+	arg_idx = optind;
 	if (arg_idx == argc) {
 		help();
 		exit(1);

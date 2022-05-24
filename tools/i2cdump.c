@@ -2,7 +2,7 @@
     i2cdump.c - a user-space program to dump I2C registers
     Copyright (C) 2002-2003  Frodo Looijaard <frodol@dds.nl>, and
                              Mark D. Studebaker <mdsxyz123@yahoo.com>
-    Copyright (C) 2004-2021  Jean Delvare <jdelvare@suse.de>
+    Copyright (C) 2004-2022  Jean Delvare <jdelvare@suse.de>
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -110,26 +110,23 @@ int main(int argc, char *argv[])
 	char filename[20];
 	int block[256];
 	int pec = 0, even = 0;
-	int flags = 0;
+	int opt;
 	int force = 0, yes = 0, version = 0, all_addrs = 0;
 	const char *range = NULL;
 	int first = 0x00, last = 0xff;
 
 	/* handle (optional) flags first */
-	while (1+flags < argc && argv[1+flags][0] == '-') {
-		switch (argv[1+flags][1]) {
+	while ((opt = getopt(argc, argv, "Vafr:y")) != -1) {
+		switch (opt) {
 		case 'V': version = 1; break;
 		case 'f': force = 1; break;
-		case 'r': range = argv[1+(++flags)]; break;
+		case 'r': range = optarg; break;
 		case 'y': yes = 1; break;
 		case 'a': all_addrs = 1; break;
-		default:
-			fprintf(stderr, "Error: Unsupported option "
-				"\"%s\"!\n", argv[1+flags]);
+		case '?':
 			help();
 			exit(1);
 		}
-		flags++;
 	}
 
 	if (version) {
@@ -137,48 +134,48 @@ int main(int argc, char *argv[])
 		exit(0);
 	}
 
-	if (argc < flags + 2) {
+	if (argc < optind + 1) {
 		fprintf(stderr, "Error: No i2c-bus specified!\n");
 		help();
 		exit(1);
 	}
-	i2cbus = lookup_i2c_bus(argv[flags+1]);
+	i2cbus = lookup_i2c_bus(argv[optind]);
 	if (i2cbus < 0) {
 		help();
 		exit(1);
 	}
 
-	if (argc < flags + 3) {
+	if (argc < optind + 2) {
 		fprintf(stderr, "Error: No address specified!\n");
 		help();
 		exit(1);
 	}
-	address = parse_i2c_address(argv[flags+2], all_addrs);
+	address = parse_i2c_address(argv[optind+1], all_addrs);
 	if (address < 0) {
 		help();
 		exit(1);
 	}
 
-	if (argc < flags + 4) {
+	if (argc < optind + 3) {
 		fprintf(stderr, "No size specified (using byte-data access)\n");
 		size = I2C_SMBUS_BYTE_DATA;
-	} else if (!strncmp(argv[flags+3], "b", 1)) {
+	} else if (!strncmp(argv[optind+2], "b", 1)) {
 		size = I2C_SMBUS_BYTE_DATA;
-		pec = argv[flags+3][1] == 'p';
-	} else if (!strncmp(argv[flags+3], "w", 1)) {
+		pec = argv[optind+2][1] == 'p';
+	} else if (!strncmp(argv[optind+2], "w", 1)) {
 		size = I2C_SMBUS_WORD_DATA;
-		pec = argv[flags+3][1] == 'p';
-	} else if (!strncmp(argv[flags+3], "W", 1)) {
+		pec = argv[optind+2][1] == 'p';
+	} else if (!strncmp(argv[optind+2], "W", 1)) {
 		size = I2C_SMBUS_WORD_DATA;
 		even = 1;
-	} else if (!strncmp(argv[flags+3], "s", 1)) {
+	} else if (!strncmp(argv[optind+2], "s", 1)) {
 		fprintf(stderr,
 			"SMBus block mode is no longer supported, please use i2cget instead\n");
 		exit(1);
-	} else if (!strncmp(argv[flags+3], "c", 1)) {
+	} else if (!strncmp(argv[optind+2], "c", 1)) {
 		size = I2C_SMBUS_BYTE;
-		pec = argv[flags+3][1] == 'p';
-	} else if (!strcmp(argv[flags+3], "i"))
+		pec = argv[optind+2][1] == 'p';
+	} else if (!strcmp(argv[optind+2], "i"))
 		size = I2C_SMBUS_I2C_BLOCK_DATA;
 	else {
 		fprintf(stderr, "Error: Invalid mode!\n");
@@ -186,8 +183,8 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	if (argc > flags + 4) {
-		bank = strtol(argv[flags+4], &end, 0);
+	if (argc > optind + 3) {
+		bank = strtol(argv[optind+3], &end, 0);
 		if (*end || size == I2C_SMBUS_I2C_BLOCK_DATA) {
 			fprintf(stderr, "Error: Invalid bank number!\n");
 			help();
@@ -200,8 +197,8 @@ int main(int argc, char *argv[])
 			exit(1);
 		}
 
-		if (argc > flags + 5) {
-			bankreg = strtol(argv[flags+5], &end, 0);
+		if (argc > optind + 4) {
+			bankreg = strtol(argv[optind+4], &end, 0);
 			if (*end) {
 				fprintf(stderr, "Error: Invalid bank register "
 					"number!\n");

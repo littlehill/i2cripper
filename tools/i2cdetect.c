@@ -160,6 +160,12 @@ static const struct func all_func[] = {
 	  .name = "I2C Block Write" },
 	{ .value = I2C_FUNC_SMBUS_READ_I2C_BLOCK,
 	  .name = "I2C Block Read" },
+	{ .value = I2C_FUNC_SMBUS_HOST_NOTIFY,
+	  .name = "SMBus Host Notify" },
+	{ .value = I2C_FUNC_10BIT_ADDR,
+	  .name = "10-bit addressing" },
+	{ .value = I2C_FUNC_SLAVE,
+	  .name = "Target mode" },
 	{ .value = 0, .name = "" }
 };
 

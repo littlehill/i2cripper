@@ -479,17 +479,17 @@ int main(int argc, char *argv[]){
 
 
 	/* handle (optional) flags first */
-	while ((opt = getopt(argc, argv, "Vh")) != -1) {
+	while ((opt = getopt(argc, argv, "wrvmyh:")) != -1) {
 		switch (opt) {
-		case 'w': write = 1; break;
-		case 'r': read = 1; break;
-		case 'v': verify = 1; break;
-		case 'm': maskp = optarg; break;
-		case 'y': yes = 0; break;
-		case 'h':
-		case '?':
-			help();
-			exit(opt == '?');
+			case 'w': write = 1; break;
+			case 'r': read = 1; break;
+			case 'v': verify = 1; break;
+			case 'm': maskp = optarg; break;
+			case 'y': yes = 1; break;
+			case 'h':
+			case '?':
+				help();
+				exit(opt == '?');
 		}
 	}
 
@@ -514,11 +514,14 @@ int main(int argc, char *argv[]){
 	}
 	
 	value = 0;
-	if(write){
-		value = strtol(argv[optind+2], &end, 0);
-		if (*end || daddress < 0 || daddress > 0xff) {
-			value = 0;
-			fprintf(stderr, "Error: Data address invalid!\n");
+	if(write || verify){
+		if (argc <= optind + 3) {
+			fprintf(stderr, "Error: No value to write!\n");
+			help();
+		}
+		value = strtol(argv[optind+3], &end, 0);
+		if (*end || value < 0 || value > 0xff) {
+			fprintf(stderr, "Error: Data invalid!\n");
 			help();
 		}
 	}
@@ -551,7 +554,7 @@ int main(int argc, char *argv[]){
 			     value, vmask, block, len, pec))
 		exit(0);
 
-	if(write){
+	if(write || verify){
 		switch (size) {
 			case I2C_SMBUS_BYTE:
 				res = i2c_smbus_write_byte(file, value);
@@ -575,33 +578,9 @@ int main(int argc, char *argv[]){
 			exit(1);
 		}
 	}
-	if(write){
-		switch (size) {
-			case I2C_SMBUS_BYTE:
-				res = i2c_smbus_write_byte(file, value);
-				break;
-			case I2C_SMBUS_WORD_DATA:
-				res = i2c_smbus_write_word_data(file, daddress, value);
-				break;
-			case I2C_SMBUS_BLOCK_DATA:
-				res = i2c_smbus_write_block_data(file, daddress, len, block);
-				break;
-			case I2C_SMBUS_I2C_BLOCK_DATA:
-				res = i2c_smbus_write_i2c_block_data(file, daddress, len, block);
-				break;
-			default: /* I2C_SMBUS_BYTE_DATA */
-				res = i2c_smbus_write_byte_data(file, daddress, value);
-				break;
-		}
-		if (res < 0) {
-			fprintf(stderr, "Error: Write failed\n");
-			close(file);
-			exit(1);
-		}
-	}
-	if (read) {
-		int oldvalue;
 
+	int oldvalue;
+	if (read || verify) {
 		switch (size) {
 			case I2C_SMBUS_BYTE:
 				oldvalue = i2c_smbus_read_byte(file);
@@ -615,54 +594,14 @@ int main(int argc, char *argv[]){
 
 		if (oldvalue < 0) {
 			fprintf(stderr, "Error: Failed to read Register\n");
-			exit(1);
-		}
-
-		fprintf(stderr, "%x",oldvalue);
-	}
-	if(verify){
-		switch (size) {
-			case I2C_SMBUS_BYTE:
-				res = i2c_smbus_write_byte(file, value);
-				break;
-			case I2C_SMBUS_WORD_DATA:
-				res = i2c_smbus_write_word_data(file, daddress, value);
-				break;
-			case I2C_SMBUS_BLOCK_DATA:
-				res = i2c_smbus_write_block_data(file, daddress, len, block);
-				break;
-			case I2C_SMBUS_I2C_BLOCK_DATA:
-				res = i2c_smbus_write_i2c_block_data(file, daddress, len, block);
-				break;
-			default: /* I2C_SMBUS_BYTE_DATA */
-				res = i2c_smbus_write_byte_data(file, daddress, value);
-				break;
-		}
-		if (res < 0) {
-			fprintf(stderr, "Error: Verify Write failed\n");
 			close(file);
 			exit(1);
 		}
 
-		int oldvalue;
+		printf("0x%x\n", oldvalue);
+	}
 
-		switch (size) {
-			case I2C_SMBUS_BYTE:
-				oldvalue = i2c_smbus_read_byte(file);
-				break;
-			case I2C_SMBUS_WORD_DATA:
-				oldvalue = i2c_smbus_read_word_data(file, daddress);
-				break;
-			default:
-				oldvalue = i2c_smbus_read_byte_data(file, daddress);
-		}
-
-		if (oldvalue < 0) {
-			fprintf(stderr, "Error: Failed to verify read Register\n");
-			exit(1);
-		}
-
-		fprintf(stderr, "%x",oldvalue);
+	if(verify){
 		if(oldvalue == value){
 			fprintf(stderr, "Verify Passed\n");
 		}
@@ -671,5 +610,6 @@ int main(int argc, char *argv[]){
 		}
 	}
 	//setupRipper()
+	close(file);
 	exit(0);
 }

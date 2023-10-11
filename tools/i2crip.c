@@ -64,6 +64,10 @@ static int check_funcs(int file, int size, int pec)
 
 	switch (size) {
 	case I2C_SMBUS_BYTE:
+		if (!(funcs & I2C_FUNC_SMBUS_READ_BYTE)) {
+			fprintf(stderr, MISSING_FUNC_FMT, "SMBus receive byte");
+			return -1;
+		}
 		if (!(funcs & I2C_FUNC_SMBUS_WRITE_BYTE)) {
 			fprintf(stderr, MISSING_FUNC_FMT, "SMBus send byte");
 			return -1;
@@ -75,11 +79,19 @@ static int check_funcs(int file, int size, int pec)
 			fprintf(stderr, MISSING_FUNC_FMT, "SMBus write byte");
 			return -1;
 		}
+		if (!(funcs & I2C_FUNC_SMBUS_READ_BYTE_DATA)) {
+			fprintf(stderr, MISSING_FUNC_FMT, "SMBus read byte");
+			return -1;
+		}
 		break;
 
 	case I2C_SMBUS_WORD_DATA:
 		if (!(funcs & I2C_FUNC_SMBUS_WRITE_WORD_DATA)) {
 			fprintf(stderr, MISSING_FUNC_FMT, "SMBus write word");
+			return -1;
+		}
+		if (!(funcs & I2C_FUNC_SMBUS_READ_WORD_DATA)) {
+			fprintf(stderr, MISSING_FUNC_FMT, "SMBus read word");
 			return -1;
 		}
 		break;
@@ -89,10 +101,19 @@ static int check_funcs(int file, int size, int pec)
 			fprintf(stderr, MISSING_FUNC_FMT, "SMBus block write");
 			return -1;
 		}
+		if (!(funcs & I2C_FUNC_SMBUS_READ_BLOCK_DATA)) {
+			fprintf(stderr, MISSING_FUNC_FMT, "SMBus block read");
+			return -1;
+		}
 		break;
+
 	case I2C_SMBUS_I2C_BLOCK_DATA:
 		if (!(funcs & I2C_FUNC_SMBUS_WRITE_I2C_BLOCK)) {
 			fprintf(stderr, MISSING_FUNC_FMT, "I2C block write");
+			return -1;
+		}
+		if (!(funcs & I2C_FUNC_SMBUS_READ_I2C_BLOCK)) {
+			fprintf(stderr, MISSING_FUNC_FMT, "I2C block read");
 			return -1;
 		}
 		break;
@@ -154,7 +175,9 @@ static int confirm(const char *filename, int address, int size, int daddress,
 	return 1;
 }
 
-int main(int argc, char *argv[])
+int mainOld(int argc, char *argv[]);
+
+int mainOld(int argc, char *argv[])
 {
 	char *end;
 	const char *maskp = NULL;
@@ -258,42 +281,42 @@ int main(int argc, char *argv[])
 
 	/* read values from command line */
 	switch (size) {
-	case I2C_SMBUS_BYTE:
-		/* short write: data address was not really data address */
-		value = daddress;
-		break;
-	case I2C_SMBUS_BYTE_DATA:
-	case I2C_SMBUS_WORD_DATA:
-		value = strtol(argv[optind+3], &end, 0);
-		if (*end || value < 0) {
-			fprintf(stderr, "Error: Data value invalid!\n");
-			help();
-		}
-		if ((size == I2C_SMBUS_BYTE_DATA && value > 0xff)
-		    || (size == I2C_SMBUS_WORD_DATA && value > 0xffff)) {
-			fprintf(stderr, "Error: Data value out of range!\n");
-			help();
-		}
-		break;
-	case I2C_SMBUS_BLOCK_DATA:
-	case I2C_SMBUS_I2C_BLOCK_DATA:
-		for (len = 0; len + optind + 4 < argc; len++) {
-			value = strtol(argv[optind + len + 3], &end, 0);
+		case I2C_SMBUS_BYTE:
+			/* short write: data address was not really data address */
+			value = daddress;
+			break;
+		case I2C_SMBUS_BYTE_DATA:
+		case I2C_SMBUS_WORD_DATA:
+			value = strtol(argv[optind+3], &end, 0);
 			if (*end || value < 0) {
 				fprintf(stderr, "Error: Data value invalid!\n");
 				help();
 			}
-			if (value > 0xff) {
+			if ((size == I2C_SMBUS_BYTE_DATA && value > 0xff)
+				|| (size == I2C_SMBUS_WORD_DATA && value > 0xffff)) {
 				fprintf(stderr, "Error: Data value out of range!\n");
 				help();
 			}
-			block[len] = value;
-		}
-		value = -1;
-		break;
-	default:
-		value = -1;
-		break;
+			break;
+		case I2C_SMBUS_BLOCK_DATA:
+		case I2C_SMBUS_I2C_BLOCK_DATA:
+			for (len = 0; len + optind + 4 < argc; len++) {
+				value = strtol(argv[optind + len + 3], &end, 0);
+				if (*end || value < 0) {
+					fprintf(stderr, "Error: Data value invalid!\n");
+					help();
+				}
+				if (value > 0xff) {
+					fprintf(stderr, "Error: Data value out of range!\n");
+					help();
+				}
+				block[len] = value;
+			}
+			value = -1;
+			break;
+		default:
+			value = -1;
+			break;
 	}
 
 	if (maskp) {
@@ -323,14 +346,14 @@ int main(int argc, char *argv[])
 		int oldvalue;
 
 		switch (size) {
-		case I2C_SMBUS_BYTE:
-			oldvalue = i2c_smbus_read_byte(file);
-			break;
-		case I2C_SMBUS_WORD_DATA:
-			oldvalue = i2c_smbus_read_word_data(file, daddress);
-			break;
-		default:
-			oldvalue = i2c_smbus_read_byte_data(file, daddress);
+			case I2C_SMBUS_BYTE:
+				oldvalue = i2c_smbus_read_byte(file);
+				break;
+			case I2C_SMBUS_WORD_DATA:
+				oldvalue = i2c_smbus_read_word_data(file, daddress);
+				break;
+			default:
+				oldvalue = i2c_smbus_read_byte_data(file, daddress);
 		}
 
 		if (oldvalue < 0) {
@@ -425,5 +448,228 @@ int main(int argc, char *argv[])
 		       size == I2C_SMBUS_WORD_DATA ? 4 : 2, value);
 	}
 
+	exit(0);
+}
+
+int setupRipper(void);
+
+int setupRipper(){
+	return 1;
+}
+
+int main(int argc, char *argv[]){
+	char* end;
+	int res;
+	int read = 0;
+	int verify = 0;
+	int write = 0;
+	const char *maskp = NULL;
+	int size;
+	int yes = 0;
+	int file;
+	char filename[20];
+
+	int vmask = 0;
+	unsigned char block[I2C_SMBUS_BLOCK_MAX];
+	int len = 0;
+	int pec = 0;
+	int all_addrs = 0;
+	int opt;
+	int force = 1;
+
+
+	/* handle (optional) flags first */
+	while ((opt = getopt(argc, argv, "Vh")) != -1) {
+		switch (opt) {
+		case 'w': write = 1; break;
+		case 'r': read = 1; break;
+		case 'v': verify = 1; break;
+		case 'm': maskp = optarg; break;
+		case 'y': yes = 0; break;
+		case 'h':
+		case '?':
+			help();
+			exit(opt == '?');
+		}
+	}
+
+	int i2cbus, address, daddress;
+	int value = 0x00;
+
+	if (argc < optind + 3)
+		help();
+
+	i2cbus = lookup_i2c_bus(argv[optind]);
+	if (i2cbus < 0)
+		help();
+
+	address = parse_i2c_address(argv[optind+1], all_addrs);
+	if (address < 0)
+		help();
+
+	daddress = strtol(argv[optind+2], &end, 0);
+	if (*end || daddress < 0 || daddress > 0xff) {
+		fprintf(stderr, "Error: Data address invalid!\n");
+		help();
+	}
+	
+	value = 0;
+	if(write){
+		value = strtol(argv[optind+2], &end, 0);
+		if (*end || daddress < 0 || daddress > 0xff) {
+			value = 0;
+			fprintf(stderr, "Error: Data address invalid!\n");
+			help();
+		}
+	}
+
+	// For now assume BYTE data
+	size = I2C_SMBUS_BYTE_DATA;
+	//size = I2C_SMBUS_WORD_DATA; break;
+
+	if (maskp) {
+		vmask = strtol(maskp, &end, 0);
+		if (*end || vmask == 0) {
+			fprintf(stderr, "Error: Data value mask invalid!\n");
+			help();
+		}
+		if (((size == I2C_SMBUS_BYTE || size == I2C_SMBUS_BYTE_DATA)
+		     && vmask > 0xff) || vmask > 0xffff) {
+			fprintf(stderr, "Error: Data value mask out of range!\n");
+			help();
+		}
+	}
+
+	// Open i2c port
+	file = open_i2c_dev(i2cbus, filename, sizeof(filename), 0);
+	if (file < 0
+	 || check_funcs(file, size, pec)
+	 || set_slave_addr(file, address, force))
+		exit(1);
+
+	if (!yes && !confirm(filename, address, size, daddress,
+			     value, vmask, block, len, pec))
+		exit(0);
+
+	if(write){
+		switch (size) {
+			case I2C_SMBUS_BYTE:
+				res = i2c_smbus_write_byte(file, value);
+				break;
+			case I2C_SMBUS_WORD_DATA:
+				res = i2c_smbus_write_word_data(file, daddress, value);
+				break;
+			case I2C_SMBUS_BLOCK_DATA:
+				res = i2c_smbus_write_block_data(file, daddress, len, block);
+				break;
+			case I2C_SMBUS_I2C_BLOCK_DATA:
+				res = i2c_smbus_write_i2c_block_data(file, daddress, len, block);
+				break;
+			default: /* I2C_SMBUS_BYTE_DATA */
+				res = i2c_smbus_write_byte_data(file, daddress, value);
+				break;
+		}
+		if (res < 0) {
+			fprintf(stderr, "Error: Write failed\n");
+			close(file);
+			exit(1);
+		}
+	}
+	if(write){
+		switch (size) {
+			case I2C_SMBUS_BYTE:
+				res = i2c_smbus_write_byte(file, value);
+				break;
+			case I2C_SMBUS_WORD_DATA:
+				res = i2c_smbus_write_word_data(file, daddress, value);
+				break;
+			case I2C_SMBUS_BLOCK_DATA:
+				res = i2c_smbus_write_block_data(file, daddress, len, block);
+				break;
+			case I2C_SMBUS_I2C_BLOCK_DATA:
+				res = i2c_smbus_write_i2c_block_data(file, daddress, len, block);
+				break;
+			default: /* I2C_SMBUS_BYTE_DATA */
+				res = i2c_smbus_write_byte_data(file, daddress, value);
+				break;
+		}
+		if (res < 0) {
+			fprintf(stderr, "Error: Write failed\n");
+			close(file);
+			exit(1);
+		}
+	}
+	if (read) {
+		int oldvalue;
+
+		switch (size) {
+			case I2C_SMBUS_BYTE:
+				oldvalue = i2c_smbus_read_byte(file);
+				break;
+			case I2C_SMBUS_WORD_DATA:
+				oldvalue = i2c_smbus_read_word_data(file, daddress);
+				break;
+			default:
+				oldvalue = i2c_smbus_read_byte_data(file, daddress);
+		}
+
+		if (oldvalue < 0) {
+			fprintf(stderr, "Error: Failed to read Register\n");
+			exit(1);
+		}
+
+		fprintf(stderr, "%x",oldvalue);
+	}
+	if(verify){
+		switch (size) {
+			case I2C_SMBUS_BYTE:
+				res = i2c_smbus_write_byte(file, value);
+				break;
+			case I2C_SMBUS_WORD_DATA:
+				res = i2c_smbus_write_word_data(file, daddress, value);
+				break;
+			case I2C_SMBUS_BLOCK_DATA:
+				res = i2c_smbus_write_block_data(file, daddress, len, block);
+				break;
+			case I2C_SMBUS_I2C_BLOCK_DATA:
+				res = i2c_smbus_write_i2c_block_data(file, daddress, len, block);
+				break;
+			default: /* I2C_SMBUS_BYTE_DATA */
+				res = i2c_smbus_write_byte_data(file, daddress, value);
+				break;
+		}
+		if (res < 0) {
+			fprintf(stderr, "Error: Verify Write failed\n");
+			close(file);
+			exit(1);
+		}
+
+		int oldvalue;
+
+		switch (size) {
+			case I2C_SMBUS_BYTE:
+				oldvalue = i2c_smbus_read_byte(file);
+				break;
+			case I2C_SMBUS_WORD_DATA:
+				oldvalue = i2c_smbus_read_word_data(file, daddress);
+				break;
+			default:
+				oldvalue = i2c_smbus_read_byte_data(file, daddress);
+		}
+
+		if (oldvalue < 0) {
+			fprintf(stderr, "Error: Failed to verify read Register\n");
+			exit(1);
+		}
+
+		fprintf(stderr, "%x",oldvalue);
+		if(oldvalue == value){
+			fprintf(stderr, "Verify Passed\n");
+		}
+		else{
+			fprintf(stderr, "Verify Failed\n");
+		}
+	}
+	//setupRipper()
 	exit(0);
 }

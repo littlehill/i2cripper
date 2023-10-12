@@ -1,5 +1,5 @@
 /*
-    i2cset.c - A user-space program to write an I2C register.
+    i2crip.c - A user-space program to write an I2C register.
     Copyright (C) 2001-2003  Frodo Looijaard <frodol@dds.nl>, and
                              Mark D. Studebaker <mdsxyz123@yahoo.com>
     Copyright (C) 2004-2022  Jean Delvare <jdelvare@suse.de>
@@ -38,20 +38,18 @@ static void help(void) __attribute__ ((noreturn));
 static void help(void)
 {
 	fprintf(stderr,
-		"Usage: i2cset [-f] [-y] [-m MASK] [-r] [-a] I2CBUS CHIP-ADDRESS DATA-ADDRESS [VALUE] ... [MODE]\n"
+		"Usage: i2crip [ACTION] I2CBUS CHIP-ADDRESS DATA-ADDRESS [VALUE]\n"
+		"  ACTION is a flag to indicate read, write, or verify.\n"
+		"    -r (Read)\n"
+		"    -w (Write)\n"
+		"    -v (Verify)\n"
 		"  I2CBUS is an integer or an I2C bus name\n"
 		"  ADDRESS is an integer (0x08 - 0x77, or 0x00 - 0x7f if -a is given)\n"
-		"  MODE is one of:\n"
-		"    c (byte, no value)\n"
-		"    b (byte data, default)\n"
-		"    w (word data)\n"
-		"    i (I2C block data)\n"
-		"    s (SMBus block data)\n"
-		"    Append p for SMBus PEC\n");
+		"  VALUE is data to be written / verified\n");
 	exit(1);
 }
 
-static int check_funcs(int file, int size, int pec)
+static int check_funcs(int file)
 {
 	unsigned long funcs;
 
@@ -62,112 +60,20 @@ static int check_funcs(int file, int size, int pec)
 		return -1;
 	}
 
-	switch (size) {
-	case I2C_SMBUS_BYTE:
-		if (!(funcs & I2C_FUNC_SMBUS_READ_BYTE)) {
-			fprintf(stderr, MISSING_FUNC_FMT, "SMBus receive byte");
-			return -1;
-		}
-		if (!(funcs & I2C_FUNC_SMBUS_WRITE_BYTE)) {
-			fprintf(stderr, MISSING_FUNC_FMT, "SMBus send byte");
-			return -1;
-		}
-		break;
-
-	case I2C_SMBUS_BYTE_DATA:
-		if (!(funcs & I2C_FUNC_SMBUS_WRITE_BYTE_DATA)) {
-			fprintf(stderr, MISSING_FUNC_FMT, "SMBus write byte");
-			return -1;
-		}
-		if (!(funcs & I2C_FUNC_SMBUS_READ_BYTE_DATA)) {
-			fprintf(stderr, MISSING_FUNC_FMT, "SMBus read byte");
-			return -1;
-		}
-		break;
-
-	case I2C_SMBUS_WORD_DATA:
-		if (!(funcs & I2C_FUNC_SMBUS_WRITE_WORD_DATA)) {
-			fprintf(stderr, MISSING_FUNC_FMT, "SMBus write word");
-			return -1;
-		}
-		if (!(funcs & I2C_FUNC_SMBUS_READ_WORD_DATA)) {
-			fprintf(stderr, MISSING_FUNC_FMT, "SMBus read word");
-			return -1;
-		}
-		break;
-
-	case I2C_SMBUS_BLOCK_DATA:
-		if (!(funcs & I2C_FUNC_SMBUS_WRITE_BLOCK_DATA)) {
-			fprintf(stderr, MISSING_FUNC_FMT, "SMBus block write");
-			return -1;
-		}
-		if (!(funcs & I2C_FUNC_SMBUS_READ_BLOCK_DATA)) {
-			fprintf(stderr, MISSING_FUNC_FMT, "SMBus block read");
-			return -1;
-		}
-		break;
-
-	case I2C_SMBUS_I2C_BLOCK_DATA:
-		if (!(funcs & I2C_FUNC_SMBUS_WRITE_I2C_BLOCK)) {
-			fprintf(stderr, MISSING_FUNC_FMT, "I2C block write");
-			return -1;
-		}
-		if (!(funcs & I2C_FUNC_SMBUS_READ_I2C_BLOCK)) {
-			fprintf(stderr, MISSING_FUNC_FMT, "I2C block read");
-			return -1;
-		}
-		break;
-	}
-
-	if (pec
-	 && !(funcs & (I2C_FUNC_SMBUS_PEC | I2C_FUNC_I2C))) {
-		fprintf(stderr, "Warning: Adapter does "
-			"not seem to support PEC\n");
+	if (!(funcs & I2C_FUNC_I2C)) {
+		fprintf(stderr, MISSING_FUNC_FMT, "I2C transfers");
+		return -1;
 	}
 
 	return 0;
 }
 
-static int confirm(const char *filename, int address, int size, int daddress,
-		   int value, int vmask, const unsigned char *block, int len,
-		   int pec)
+static int confirm(void)
 {
-	int dont = 0;
-
-	fprintf(stderr, "WARNING! This program can confuse your I2C "
-		"bus, cause data loss and worse!\n");
-
-	if (address >= 0x50 && address <= 0x57) {
-		fprintf(stderr, "DANGEROUS! Writing to a serial "
-			"EEPROM on a memory DIMM\nmay render your "
-			"memory USELESS and make your system "
-			"UNBOOTABLE!\n");
-		dont++;
-	}
-
-	fprintf(stderr, "I will write to device file %s, chip address "
-		"0x%02x,\n", filename, address);
-	if (size != I2C_SMBUS_BYTE)
-		fprintf(stderr, "data address 0x%02x, ", daddress);
-	if (size == I2C_SMBUS_BLOCK_DATA ||
-	    size == I2C_SMBUS_I2C_BLOCK_DATA) {
-		int i;
-
-		fprintf(stderr, "data");
-		for (i = 0; i < len; i++)
-			fprintf(stderr, " 0x%02x", block[i]);
-		fprintf(stderr, ", mode %s.\n", size == I2C_SMBUS_BLOCK_DATA
-			? "smbus block" : "i2c block");
-	} else
-		fprintf(stderr, "data 0x%02x%s, mode %s.\n", value,
-			vmask ? " (masked)" : "",
-			size == I2C_SMBUS_WORD_DATA ? "word" : "byte");
-	if (pec)
-		fprintf(stderr, "PEC checking enabled.\n");
-
-	fprintf(stderr, "Continue? [%s] ", dont ? "y/N" : "Y/n");
+	fprintf(stderr, "WARNING! This program can confuse your I2C bus, cause data loss and worse!\n");
+	fprintf(stderr, "Continue? [y/N] ");
 	fflush(stderr);
-	if (!user_ack(!dont)) {
+	if (!user_ack(0)) {
 		fprintf(stderr, "Aborting on user request.\n");
 		return 0;
 	}
@@ -175,149 +81,7 @@ static int confirm(const char *filename, int address, int size, int daddress,
 	return 1;
 }
 
-int i2cRead(int file, int reg, int dreg, int dregSize, __u8 *data, int dataSize);
-
-int i2cWrite(int file, int reg, int dreg, int dregSize, __u8 *data, int dataSize);
-
-int main(int argc, char *argv[]){
-	char* end;
-	int read = 0;
-	int verify = 0;
-	int write = 0;
-	const char *maskp = NULL;
-	int size;
-	int yes = 0;
-	int file;
-	char filename[20];
-
-	int vmask = 0;
-	unsigned char block[I2C_SMBUS_BLOCK_MAX];
-	int len = 0;
-	int pec = 0;
-	int all_addrs = 0;
-	int opt;
-	int force = 1;
-
-
-	/* handle (optional) flags first */
-	while ((opt = getopt(argc, argv, "wrvmyh:")) != -1) {
-		switch (opt) {
-			case 'w': write = 1; break;
-			case 'r': read = 1; break;
-			case 'v': verify = 1; break;
-			case 'm': maskp = optarg; break;
-			case 'y': yes = 1; break;
-			case 'h':
-			case '?':
-				help();
-				exit(opt == '?');
-		}
-	}
-
-	int i2cbus, address, daddress;
-	int value = 0x00;
-
-	if (argc < optind + 3)
-		help();
-
-	i2cbus = lookup_i2c_bus(argv[optind]);
-	if (i2cbus < 0)
-		help();
-
-	address = parse_i2c_address(argv[optind+1], all_addrs);
-	if (address < 0)
-		help();
-
-	daddress = strtol(argv[optind+2], &end, 0);
-	if (*end || daddress < 0 || daddress > 0xff) {
-		fprintf(stderr, "Error: Data address invalid!\n");
-		help();
-	}
-	
-	value = 0;
-	if(write || verify){
-		if (argc <= optind + 3) {
-			fprintf(stderr, "Error: No value to write!\n");
-			help();
-		}
-		value = strtol(argv[optind+3], &end, 0);
-		if (*end || value < 0 || value > 0xff) {
-			fprintf(stderr, "Error: Data invalid!\n");
-			help();
-		}
-	}
-
-	// For now assume BYTE data
-	int sizeOptions[2] = {I2C_SMBUS_BYTE_DATA, I2C_SMBUS_WORD_DATA};
-	size = I2C_SMBUS_BYTE_DATA;
-	//size = I2C_SMBUS_WORD_DATA; break;
-
-	if (maskp) {
-		vmask = strtol(maskp, &end, 0);
-		if (*end || vmask == 0) {
-			fprintf(stderr, "Error: Data value mask invalid!\n");
-			help();
-		}
-		if (((size == I2C_SMBUS_BYTE || size == I2C_SMBUS_BYTE_DATA)
-		     && vmask > 0xff) || vmask > 0xffff) {
-			fprintf(stderr, "Error: Data value mask out of range!\n");
-			help();
-		}
-	}
-
-	// Open i2c port
-	file = open_i2c_dev(i2cbus, filename, sizeof(filename), 0);
-	if (file < 0 ){
-		exit(1);
-	}
-
-	for(int i = 0; i < (int)(sizeof(sizeOptions) / sizeof(int)); i++){
-		if(check_funcs(file, sizeOptions[i], pec)){
-			exit(1);
-		}
-	}
-
-	if(set_slave_addr(file, address, force)){
-		exit(1);
-	}
-
-	if (!yes && !confirm(filename, address, size, daddress,
-			     value, vmask, block, len, pec))
-		exit(0);
-
-	if(write || verify){
-		if(!i2cWrite(file, address, daddress, 1, (__u8*)&value, 1)){
-			fprintf(stderr, "Error: Failed to write Register\n");
-			close(file);
-			exit(1);
-		}
-	}
-
-	unsigned char readValue;
-	if (read || verify) {
-		if(!i2cRead(file, address, daddress, 1, (__u8*)&readValue, 1)){
-			fprintf(stderr, "Error: Failed to read Register\n");
-			close(file);
-			exit(1);
-		}
-
-		printf("0x%x\n", readValue);
-	}
-
-	if(verify){
-		if(readValue == value){
-			fprintf(stderr, "Verify Passed\n");
-		}
-		else{
-			fprintf(stderr, "Verify Failed\n");
-		}
-	}
-	//setupRipper()
-	close(file);
-	exit(0);
-}
-
-int i2cRead(int file, int reg, int dreg, int dregSize, __u8 *data, int dataSize){
+static int i2cRead(int file, int reg, int dreg, int dregSize, __u8 *data, int dataSize){
 
 	struct i2c_msg msgs[2];
 	__u8 regBuff[2];
@@ -378,7 +142,7 @@ int i2cRead(int file, int reg, int dreg, int dregSize, __u8 *data, int dataSize)
 	return 1;
 }
 
-int i2cWrite(int file, int reg, int dreg, int dregSize, __u8 *data, int dataSize){
+static int i2cWrite(int file, int reg, int dreg, int dregSize, __u8 *data, int dataSize){
 
 	struct i2c_msg msgs;
 	__u8 buff[4];
@@ -437,4 +201,130 @@ int i2cWrite(int file, int reg, int dreg, int dregSize, __u8 *data, int dataSize
 	}
 
 	return 1;
+}
+
+int main(int argc, char *argv[]){
+	char* end;
+	int read = 0;
+	int verify = 0;
+	int write = 0;
+	int yes = 0;
+	int file;
+	char filename[20];
+
+	const char *maskp = NULL;
+	int vmask = 0;
+	int all_addrs = 0;
+	int opt;
+	int force = 1;
+
+
+	/* handle (optional) flags first */
+	while ((opt = getopt(argc, argv, "wrvmyh:")) != -1) {
+		switch (opt) {
+			case 'w': write = 1; break;
+			case 'r': read = 1; break;
+			case 'v': verify = 1; break;
+			case 'm': maskp = optarg; break;
+			case 'y': yes = 1; break;
+			case 'h':
+			case '?':
+				help();
+				exit(opt == '?');
+		}
+	}
+
+	int i2cbus, address, daddress;
+	int value = 0x00;
+
+	if (argc < optind + 3)
+		help();
+
+	i2cbus = lookup_i2c_bus(argv[optind]);
+	if (i2cbus < 0)
+		help();
+
+	address = parse_i2c_address(argv[optind+1], all_addrs);
+	if (address < 0)
+		help();
+
+	daddress = strtol(argv[optind+2], &end, 0);
+	if (*end || daddress < 0 || daddress > 0xff) {
+		fprintf(stderr, "Error: Data address invalid!\n");
+		help();
+	}
+	
+	value = 0;
+	if(write || verify){
+		if (argc <= optind + 3) {
+			fprintf(stderr, "Error: No value to write!\n");
+			help();
+		}
+		value = strtol(argv[optind+3], &end, 0);
+		if (*end || value < 0 || value > 0xff) {
+			fprintf(stderr, "Error: Data invalid!\n");
+			help();
+		}
+	}
+
+	if (maskp) {
+		vmask = strtol(maskp, &end, 0);
+		if (*end || vmask == 0) {
+			fprintf(stderr, "Error: Data value mask invalid!\n");
+			help();
+		}
+		// TODO 8bit vs 16 bit mask
+		if (vmask > 0xff) {
+			fprintf(stderr, "Error: Data value mask out of range!\n");
+			help();
+		}
+	}
+
+	// Open i2c port
+	file = open_i2c_dev(i2cbus, filename, sizeof(filename), 0);
+	if (file < 0 ){
+		exit(1);
+	}
+
+	if(check_funcs(file)){
+		exit(1);
+	}
+
+	if(set_slave_addr(file, address, force)){
+		exit(1);
+	}
+
+	if (!yes && !confirm())
+		exit(0);
+
+	if(write || verify){
+		if(!i2cWrite(file, address, daddress, 1, (__u8*)&value, 1)){
+			fprintf(stderr, "Error: Failed to write Register\n");
+			close(file);
+			exit(1);
+		}
+	}
+
+	unsigned char readValue;
+	if (read || verify) {
+		if(!i2cRead(file, address, daddress, 1, (__u8*)&readValue, 1)){
+			fprintf(stderr, "Error: Failed to read Register\n");
+			close(file);
+			exit(1);
+		}
+
+		printf("0x%x\n", readValue);
+	}
+
+	if(verify){
+		if(readValue == value){
+			fprintf(stderr, "Verify Passed\n");
+		}
+		else{
+			fprintf(stderr, "Verify Failed\n");
+		}
+	}
+	//setupRipper()
+	close(file);
+	exit(0);
 }

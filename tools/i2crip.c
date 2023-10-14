@@ -33,6 +33,11 @@
 #include "util.h"
 #include "../version.h"
 
+
+#define EXIT(N) i2cRipExit(N)
+
+static void i2cRipExit(int val);
+
 static void help(void) __attribute__ ((noreturn));
 
 static void help(void)
@@ -203,6 +208,8 @@ static int i2cWrite(int file, int reg, int dreg, int dregSize, __u8 *data, int d
 	return 1;
 }
 
+int inputFileParser(const char* filename);
+
 int main(int argc, char *argv[]){
 	char* end;
 	int read = 0;
@@ -218,6 +225,9 @@ int main(int argc, char *argv[]){
 	int opt;
 	int force = 1;
 
+
+	inputFileParser("./tableExample.txt");
+	EXIT(0);
 
 	/* handle (optional) flags first */
 	while ((opt = getopt(argc, argv, "wrvmyh:")) != -1) {
@@ -327,4 +337,230 @@ int main(int argc, char *argv[]){
 	//setupRipper()
 	close(file);
 	exit(0);
+}
+
+typedef enum i2cRipCmds {
+	I2C_RIP_INVALID = -1,
+	I2C_RIP_SET_BUS = 0,
+	I2C_RIP_SET_ID,
+	I2C_RIP_DELAY,
+	I2C_RIP_WRITE_8_BYTE,
+	I2C_RIP_WRITE_16_BYTE,
+	I2C_RIP_WRITE_8_WORD,
+	I2C_RIP_WRITE_16_WORD,
+	I2C_RIP_READ_8_BYTE,
+	I2C_RIP_READ_16_BYTE,
+	I2C_RIP_READ_8_WORD,
+	I2C_RIP_READ_16_WORD,
+	I2C_RIP_VERIFY_8_BYTE,
+	I2C_RIP_VERIFY_16_BYTE,
+	I2C_RIP_VERIFY_8_WORD,
+	I2C_RIP_VERIFY_16_WORD,
+} i2cRipCmds_t;
+
+typedef struct i2cRipCmdsLookUp{
+	i2cRipCmds_t m_cmd;
+	int m_numArgs;
+	char m_string[20];
+} i2cRipCmdsLookUp_t ;
+
+#define I2C_RIP_LOOKUP_TABLE_SIZE 15
+i2cRipCmdsLookUp_t g_cmdLookUpTable[I2C_RIP_LOOKUP_TABLE_SIZE] = {
+	{I2C_RIP_SET_BUS, 2, "SET-BUS"},
+	{I2C_RIP_SET_ID, 2, "SET-ID"},
+	{I2C_RIP_DELAY, 2, "DELAY"},
+	{I2C_RIP_WRITE_8_BYTE, 3, "WB-8"},
+	{I2C_RIP_WRITE_16_BYTE, 3, "WB-16"},
+	{I2C_RIP_WRITE_8_WORD, 3, "WW-8"},
+	{I2C_RIP_WRITE_16_WORD, 3, "WW-16"},
+	{I2C_RIP_READ_8_BYTE, 2, "RB-8"},
+	{I2C_RIP_READ_16_BYTE, 2, "RB-16"},
+	{I2C_RIP_READ_8_WORD, 2, "RW-8"},	
+	{I2C_RIP_READ_16_WORD, 2, "RW-16"},	
+	{I2C_RIP_VERIFY_8_BYTE, 4, "VB-8"},
+	{I2C_RIP_VERIFY_16_BYTE, 4, "VB-16"},
+	{I2C_RIP_VERIFY_8_WORD, 4, "VW-8"},	
+	{I2C_RIP_VERIFY_16_WORD, 4, "VW-16"}
+};
+
+
+typedef struct i2cRipCmdStruct {
+	i2cRipCmds_t m_cmd;
+	int * m_args;
+	int m_numArgs;
+	int m_isValid;
+} i2cRipCmdStruct_t;
+
+i2cRipCmdStruct_t * g_i2cRipCmdList = NULL;
+int g_i2cRipCmdListLength = 0;
+
+#define I2C_RIP_MAX_ARGUMENTS 50
+
+int inputFileParser(const char* filename){
+	FILE *file = fopen(filename, "r");
+
+    if (file == NULL) {
+        fprintf(stderr,"File could not be opened");
+        return 0;
+    }
+
+    int ch;
+	int lines = 0;
+    // Get number of lines
+	while ((ch = fgetc(file)) != EOF) {
+        if (ch == '\n') {
+            lines++;
+        }
+    }
+	fprintf(stderr,"Number of lines: %d\n", lines);
+    fclose(file);
+
+	if(lines <= 0){
+		fprintf(stderr,"Empty File");
+        return 0;
+	}
+
+	// Allocate memory for commands
+	g_i2cRipCmdList = (i2cRipCmdStruct_t *)malloc(sizeof(i2cRipCmdStruct_t) * lines);
+	if (g_i2cRipCmdList == NULL) {
+        fprintf(stderr, "Memory allocation failed");
+        return 0;
+    }
+	g_i2cRipCmdListLength = lines;
+
+	// Open file again
+	file = fopen(filename, "r");
+	if (file == NULL) {
+        fprintf(stderr,"File could not be opened");
+        return 0;
+    }
+
+
+	char line[50];
+	char subString[50];
+	int lineIndex = 0;
+	int endOfFile = 0;
+	for(int cmdNum = 0; cmdNum < lines; cmdNum++){
+		lineIndex = 0;
+		// GET NEXT LINE
+		while(1){
+			if(lineIndex >= 50){
+				fprintf(stderr,"Error: Line number %d, too long\n", cmdNum + 1);
+				fclose(file);
+				return 0;
+			}
+
+			int val = fgetc(file);
+			// END OF LINE / EOF
+			if(val == '\n'){
+				line[lineIndex++] = '\n';
+				break;
+			}
+			else if(val == EOF){
+				line[lineIndex++] = '\n';
+				endOfFile = 1;
+				break;
+			}
+			line[lineIndex++] = val;
+
+		}
+
+		// SHOULD HAVE LINE
+		int lineLength = strlen(line);
+		int start = 0;
+		int arguments[I2C_RIP_MAX_ARGUMENTS];
+		int argNum = 0;
+		g_i2cRipCmdList[cmdNum].m_cmd = I2C_RIP_INVALID;
+		g_i2cRipCmdList[cmdNum].m_args = NULL;
+		g_i2cRipCmdList[cmdNum].m_numArgs = 0;
+		g_i2cRipCmdList[cmdNum].m_isValid = 0;
+
+		for(int i = 0; i < lineLength; i++){
+			// If found argument
+			if((line[i] == ' ') || (line[i] == '\n')){
+				//Empty White space
+				if(start == i){
+					continue;
+				}
+
+				// Find Argument
+				strncpy(subString, &line[start], i - start);
+				subString[i - start] = '\0';
+				start = i + 1;
+				fprintf(stderr,"ARG %s\n", subString);
+				// Argument found
+				if(g_i2cRipCmdList[cmdNum].m_isValid == 0){
+					// Find Command
+					for(int j = 0; j < I2C_RIP_LOOKUP_TABLE_SIZE; j++){
+						if(strcmp(g_cmdLookUpTable[j].m_string, subString) == 0){
+							g_i2cRipCmdList[cmdNum].m_cmd = g_cmdLookUpTable[j].m_cmd;
+							g_i2cRipCmdList[cmdNum].m_isValid = 1;
+							break;
+						}
+					}
+					// If unable to find command
+					if(g_i2cRipCmdList[cmdNum].m_isValid){
+						g_i2cRipCmdList[cmdNum].m_numArgs = 0;
+						fprintf(stderr,"Error: Line number %d, Invalid Cmd: %s", cmdNum + 1, subString);
+						fclose(file);
+						return 0;
+					}
+				}
+				else{
+					long num = 0;
+					char *endptr;
+					int strLength = strlen(subString);
+					if(strLength > 2){
+						// Hex numbers
+						if(subString[0] == '0' && subString[1] == 'x'){
+							num = strtol(&subString[2], &endptr, 16);
+						}
+						num = strtol(subString, &endptr, 10);
+					}
+					else{
+						// Decimal conversion
+						num = strtol(subString, &endptr, 10);
+					}
+					// Checks conversions
+					if (*endptr != '\0' && *endptr != '\n')
+					{
+						fprintf(stderr,"Error: Line number %d, Invalid Arg: %s", cmdNum + 1, subString);
+						fclose(file);
+						return 0;
+					}
+
+					arguments[argNum++] = (int)num;
+				}
+			}
+		}
+		g_i2cRipCmdList[cmdNum].m_args = (int *)malloc(sizeof(int) * argNum);
+		if (g_i2cRipCmdList == NULL) {
+			fprintf(stderr, "Memory allocation failed");
+			fclose(file);
+			return 0;
+		}
+		g_i2cRipCmdList[cmdNum].m_numArgs = argNum;
+		memcpy(g_i2cRipCmdList[cmdNum].m_args, arguments, sizeof(arguments[0]) * argNum);
+
+
+		if(endOfFile){
+			fclose(file);
+			return 1;
+		}
+	}
+	fclose(file);
+	return 1;
+}
+
+void i2cRipExit(int val){
+	if(g_i2cRipCmdListLength > 0){
+		for(int i = 0; i < g_i2cRipCmdListLength; i++){
+			if(g_i2cRipCmdList[i].m_numArgs > 0){
+				free(g_i2cRipCmdList[i].m_args);
+			}
+		}
+		free(g_i2cRipCmdList);
+	}
+	
+	exit(val);
 }

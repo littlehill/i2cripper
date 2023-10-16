@@ -32,9 +32,14 @@
 #include "i2cbusses.h"
 #include "util.h"
 #include "../version.h"
+#include "i2crip.h"
 
 
 #define EXIT(N) i2cRipExit(N)
+
+static int getLine(FILE* file, char* buffer, int size, int* endOfFile);
+
+int parseLine(char* buffer, int size, i2cRipCmdStruct_t *i2cRipData);
 
 static void i2cRipExit(int val);
 
@@ -226,7 +231,10 @@ int main(int argc, char *argv[]){
 	int force = 1;
 
 
-	inputFileParser("./tableExample.txt");
+	if(!inputFileParser("./tableExample.txt")){
+		fprintf(stderr,"FAILED PARSING FILE\nEXITING\n");
+		EXIT(0);
+	}
 	EXIT(0);
 
 	/* handle (optional) flags first */
@@ -339,170 +347,168 @@ int main(int argc, char *argv[]){
 	exit(0);
 }
 
-typedef enum i2cRipCmds {
-	I2C_RIP_INVALID = -1,
-	I2C_RIP_SET_BUS = 0,
-	I2C_RIP_SET_ID,
-	I2C_RIP_DELAY,
-	I2C_RIP_WRITE_8_BYTE,
-	I2C_RIP_WRITE_16_BYTE,
-	I2C_RIP_WRITE_8_WORD,
-	I2C_RIP_WRITE_16_WORD,
-	I2C_RIP_READ_8_BYTE,
-	I2C_RIP_READ_16_BYTE,
-	I2C_RIP_READ_8_WORD,
-	I2C_RIP_READ_16_WORD,
-	I2C_RIP_VERIFY_8_BYTE,
-	I2C_RIP_VERIFY_16_BYTE,
-	I2C_RIP_VERIFY_8_WORD,
-	I2C_RIP_VERIFY_16_WORD,
-} i2cRipCmds_t;
-
-typedef struct i2cRipCmdsLookUp{
-	i2cRipCmds_t m_cmd;
-	int m_numArgs;
-	char m_string[20];
-} i2cRipCmdsLookUp_t ;
-
-#define I2C_RIP_LOOKUP_TABLE_SIZE 15
-i2cRipCmdsLookUp_t g_cmdLookUpTable[I2C_RIP_LOOKUP_TABLE_SIZE] = {
-	{I2C_RIP_SET_BUS, 2, "SET-BUS"},
-	{I2C_RIP_SET_ID, 2, "SET-ID"},
-	{I2C_RIP_DELAY, 2, "DELAY"},
-	{I2C_RIP_WRITE_8_BYTE, 3, "WB-8"},
-	{I2C_RIP_WRITE_16_BYTE, 3, "WB-16"},
-	{I2C_RIP_WRITE_8_WORD, 3, "WW-8"},
-	{I2C_RIP_WRITE_16_WORD, 3, "WW-16"},
-	{I2C_RIP_READ_8_BYTE, 2, "RB-8"},
-	{I2C_RIP_READ_16_BYTE, 2, "RB-16"},
-	{I2C_RIP_READ_8_WORD, 2, "RW-8"},	
-	{I2C_RIP_READ_16_WORD, 2, "RW-16"},	
-	{I2C_RIP_VERIFY_8_BYTE, 4, "VB-8"},
-	{I2C_RIP_VERIFY_16_BYTE, 4, "VB-16"},
-	{I2C_RIP_VERIFY_8_WORD, 4, "VW-8"},	
-	{I2C_RIP_VERIFY_16_WORD, 4, "VW-16"}
-};
-
-
-typedef struct i2cRipCmdStruct {
-	i2cRipCmds_t m_cmd;
-	int * m_args;
-	int m_numArgs;
-	int m_isValid;
-} i2cRipCmdStruct_t;
-
-i2cRipCmdStruct_t * g_i2cRipCmdList = NULL;
-int g_i2cRipCmdListLength = 0;
-
-#define I2C_RIP_MAX_ARGUMENTS 50
-
 int inputFileParser(const char* filename){
+	int failed = 0;
 	FILE *file = fopen(filename, "r");
+	int lines = 0;
+	int numOfCmds = 0;
+    char buffer[100];
+	int endOfFile = 0;
 
     if (file == NULL) {
-        fprintf(stderr,"File could not be opened");
+        fprintf(stderr,"File could not be opened\n");
         return 0;
-    }
+    }	
+	for(lines = 0; !endOfFile ; lines++){
+		if(!getLine(file, buffer, 100, &endOfFile)){
+			fprintf(stderr, "Buffer too small, line number: %d\n", lines);
+			return 0;
+		}
+		
+		i2cRipCmdStruct_t i2cRipData;
+		if(!parseLine(buffer, 100, &i2cRipData)){
+			fprintf(stderr, "Failed to parse line: %d: %s\n", lines + 1, buffer);
+			failed = 1;
+		}
+		if (i2cRipData.m_isValid){
+			numOfCmds++;
+		}
 
-    int ch;
-	int lines = 0;
-    // Get number of lines
-	while ((ch = fgetc(file)) != EOF) {
-        if (ch == '\n') {
-            lines++;
-        }
-    }
-	fprintf(stderr,"Number of lines: %d\n", lines);
+		if(lines >= 100000){
+			fprintf(stderr, "File too large or in recursive loop\n");
+			return 0;
+		}
+	}
+
     fclose(file);
 
 	if(lines <= 0){
-		fprintf(stderr,"Empty File");
+		fprintf(stderr,"Empty File\n");
         return 0;
+	}
+	fprintf(stderr,"Number of lines: %d\n", lines);
+	fprintf(stderr,"Number of valid cmds: %d\n", numOfCmds);
+
+	if(failed){
+		return 0;
 	}
 
 	// Allocate memory for commands
-	g_i2cRipCmdList = (i2cRipCmdStruct_t *)malloc(sizeof(i2cRipCmdStruct_t) * lines);
+	g_i2cRipCmdList = (i2cRipCmdStruct_t *)malloc(sizeof(i2cRipCmdStruct_t) * numOfCmds);
 	if (g_i2cRipCmdList == NULL) {
-        fprintf(stderr, "Memory allocation failed");
+        fprintf(stderr, "Memory allocation failed\n");
         return 0;
     }
 	g_i2cRipCmdListLength = lines;
 
+	// INIT
+	for(int i = 0; i < g_i2cRipCmdListLength; i++){
+		g_i2cRipCmdList[i].m_cmd = I2C_RIP_INVALID;
+		g_i2cRipCmdList[i].m_isValid = 0;
+	}
+
 	// Open file again
 	file = fopen(filename, "r");
 	if (file == NULL) {
-        fprintf(stderr,"File could not be opened");
+        fprintf(stderr,"File could not be opened\n");
         return 0;
     }
 
+	// for(int i = 0; i < lines; lines++){
+	// 	if(!getLine(file, buffer, 100, &endOfFile)){
+	// 		fprintf(stderr, "Buffer too small, line number: %d\n", lines);
+	// 		return 0;
+	// 	}
+	// 	if(endOfFile){
+	// 		break;
+	// 	}
+	// }
 
-	char line[50];
-	char subString[50];
-	int lineIndex = 0;
-	int endOfFile = 0;
-	for(int cmdNum = 0; cmdNum < lines; cmdNum++){
-		lineIndex = 0;
-		// GET NEXT LINE
-		while(1){
-			if(lineIndex >= 50){
-				fprintf(stderr,"Error: Line number %d, too long\n", cmdNum + 1);
-				fclose(file);
-				return 0;
-			}
+	
+	fclose(file);
+	return !failed;
+}
 
-			int val = fgetc(file);
-			// END OF LINE / EOF
-			if(val == '\n'){
-				line[lineIndex++] = '\n';
-				break;
-			}
-			else if(val == EOF){
-				line[lineIndex++] = '\n';
-				endOfFile = 1;
-				break;
-			}
-			line[lineIndex++] = val;
+// Gets next line in file;
+static int getLine(FILE* file, char* buffer, int size, int* endOfFile){
+	int ch;
+	*endOfFile = 0;
 
+	for(int i = 0; i < size; i++){
+		ch = fgetc(file);
+		
+		// Check for new line or EOF
+		if(ch == '\n' || ch == EOF){
+			if(ch == EOF){
+				*endOfFile = 1;
+			}
+			buffer[i] = '\0';
+			return 1;
 		}
 
-		// SHOULD HAVE LINE
-		int lineLength = strlen(line);
-		int start = 0;
-		int arguments[I2C_RIP_MAX_ARGUMENTS];
-		int argNum = 0;
-		g_i2cRipCmdList[cmdNum].m_cmd = I2C_RIP_INVALID;
-		g_i2cRipCmdList[cmdNum].m_args = NULL;
-		g_i2cRipCmdList[cmdNum].m_numArgs = 0;
-		g_i2cRipCmdList[cmdNum].m_isValid = 0;
+		// Ignore
+		if (ch == '\r'){
+			i--;
+			continue;
+		}
 
-		for(int i = 0; i < lineLength; i++){
+		// put on buffer
+		buffer[i] = (char) ch;
+	}
+
+	// Out of buffer
+	return 0;
+}
+
+int parseLine(char* buffer, int size, i2cRipCmdStruct_t *i2cRipData){
+		int start = 0;
+		int argNum = 0;
+		int numArgReq = 0;
+		int endOfLine = 0;
+		char subString[20];
+		const int subStringSize = 20;
+		i2cRipData->m_cmd = I2C_RIP_INVALID;
+		i2cRipData->m_isValid = 0;
+		for(int i = 0; i < size; i++){
+			// Successful parse
+			if(endOfLine){
+				break;
+			}
+
 			// If found argument
-			if((line[i] == ' ') || (line[i] == '\n')){
+			if((buffer[i] == ' ') || (buffer[i] == '\0') || (buffer[i] == '\t')){
+				if(buffer[i] == '\0'){
+					endOfLine = 1;
+				}
 				//Empty White space
 				if(start == i){
+					start++;
 					continue;
 				}
 
 				// Find Argument
-				strncpy(subString, &line[start], i - start);
+				if((i - start) >= subStringSize){
+					fprintf(stderr,"Error: Argument too long\n");
+					return 0;
+				}
+
+				strncpy(subString, &buffer[start], i - start);
 				subString[i - start] = '\0';
 				start = i + 1;
-				fprintf(stderr,"ARG %s\n", subString);
-				// Argument found
-				if(g_i2cRipCmdList[cmdNum].m_isValid == 0){
+
+				// If cmd not filled
+				if(i2cRipData->m_cmd == I2C_RIP_INVALID){
 					// Find Command
 					for(int j = 0; j < I2C_RIP_LOOKUP_TABLE_SIZE; j++){
 						if(strcmp(g_cmdLookUpTable[j].m_string, subString) == 0){
-							g_i2cRipCmdList[cmdNum].m_cmd = g_cmdLookUpTable[j].m_cmd;
-							g_i2cRipCmdList[cmdNum].m_isValid = 1;
+							i2cRipData->m_cmd = g_cmdLookUpTable[j].m_cmd;
+							numArgReq = g_cmdLookUpTable[j].m_numArgs;
 							break;
 						}
 					}
 					// If unable to find command
-					if(g_i2cRipCmdList[cmdNum].m_isValid){
-						g_i2cRipCmdList[cmdNum].m_numArgs = 0;
-						fprintf(stderr,"Error: Line number %d, Invalid Cmd: %s", cmdNum + 1, subString);
-						fclose(file);
+					if(i2cRipData->m_cmd == I2C_RIP_INVALID){
+						fprintf(stderr,"Error: Invalid Cmd: %s\n", subString);
 						return 0;
 					}
 				}
@@ -515,50 +521,121 @@ int inputFileParser(const char* filename){
 						if(subString[0] == '0' && subString[1] == 'x'){
 							num = strtol(&subString[2], &endptr, 16);
 						}
-						num = strtol(subString, &endptr, 10);
+						else{
+							num = strtol(subString, &endptr, 10);
+						}
 					}
 					else{
 						// Decimal conversion
 						num = strtol(subString, &endptr, 10);
 					}
 					// Checks conversions
-					if (*endptr != '\0' && *endptr != '\n')
+					if (*endptr != '\0')
 					{
-						fprintf(stderr,"Error: Line number %d, Invalid Arg: %s", cmdNum + 1, subString);
-						fclose(file);
+						fprintf(stderr,"Error: Invalid Arg: %s\n", subString);
 						return 0;
 					}
 
-					arguments[argNum++] = (int)num;
+					switch(argNum){
+						// First Argument
+						case 0:
+							switch(i2cRipData->m_cmd){
+								case I2C_RIP_SET_BUS:
+								case I2C_RIP_SET_ID:
+								case I2C_RIP_DELAY:
+								case I2C_RIP_ERROR_DETECT:
+								case I2C_RIP_LOG_TO_FILE:
+								case I2C_RIP_LOG_TO_TERM:
+									i2cRipData->m_data.m_single = (int)num;
+									break;
+
+								case I2C_RIP_8_WRITE_BYTE:
+								case I2C_RIP_8_READ_BYTE:
+								case I2C_RIP_8_VERIFY_BYTE:
+									i2cRipData->m_data.m_8_8.m_addr = (__u8)num;
+									break;
+
+								case I2C_RIP_8_WRITE_WORD:
+								case I2C_RIP_8_READ_WORD:
+								case I2C_RIP_8_VERIFY_WORD:
+									i2cRipData->m_data.m_8_16.m_addr = (__u16)num;
+									break;
+
+								case I2C_RIP_16_WRITE_BYTE:
+								case I2C_RIP_16_READ_BYTE:
+								case I2C_RIP_16_VERIFY_BYTE:
+									i2cRipData->m_data.m_16_8.m_addr = (__u8)num;
+									break;
+
+								case I2C_RIP_16_WRITE_WORD:
+								case I2C_RIP_16_READ_WORD:
+								case I2C_RIP_16_VERIFY_WORD:
+									i2cRipData->m_data.m_16_16.m_addr = (__u16)num;
+									break;
+
+								default:
+									fprintf(stderr,"Error: Invalid arguemts %s\n", subString);
+									return 0;
+							}
+							break;
+
+						// Second Argument
+						case 1:
+							switch(i2cRipData->m_cmd){
+								case I2C_RIP_8_WRITE_BYTE:
+								case I2C_RIP_8_READ_BYTE:
+								case I2C_RIP_8_VERIFY_BYTE:
+									i2cRipData->m_data.m_8_8.m_data = (__u8)num;
+									break;
+
+								case I2C_RIP_8_WRITE_WORD:
+								case I2C_RIP_8_READ_WORD:
+								case I2C_RIP_8_VERIFY_WORD:
+									i2cRipData->m_data.m_8_16.m_data = (__u16)num;
+									break;
+
+								case I2C_RIP_16_WRITE_BYTE:
+								case I2C_RIP_16_READ_BYTE:
+								case I2C_RIP_16_VERIFY_BYTE:
+									i2cRipData->m_data.m_16_8.m_data = (__u8)num;
+									break;
+
+								case I2C_RIP_16_WRITE_WORD:
+								case I2C_RIP_16_READ_WORD:
+								case I2C_RIP_16_VERIFY_WORD:
+									i2cRipData->m_data.m_16_16.m_data = (__u16)num;
+									break;
+
+								default:
+									fprintf(stderr,"Error: Invalid arguemts %s\n", subString);
+									return 0;
+							}
+							break;
+
+						default:
+							fprintf(stderr,"Error: Invalid arguemts %s\n", subString);
+							return 0;
+					}
+					argNum++;
 				}
 			}
 		}
-		g_i2cRipCmdList[cmdNum].m_args = (int *)malloc(sizeof(int) * argNum);
-		if (g_i2cRipCmdList == NULL) {
-			fprintf(stderr, "Memory allocation failed");
-			fclose(file);
+		if(argNum != numArgReq){
+			fprintf(stderr,"Error: Invalid number of arguments got %d: needed %d\n", argNum, numArgReq);
 			return 0;
 		}
-		g_i2cRipCmdList[cmdNum].m_numArgs = argNum;
-		memcpy(g_i2cRipCmdList[cmdNum].m_args, arguments, sizeof(arguments[0]) * argNum);
 
-
-		if(endOfFile){
-			fclose(file);
-			return 1;
+		// Empty lines parse successfully
+		// But command will not be valid
+		if(i2cRipData->m_cmd != I2C_RIP_INVALID){
+			i2cRipData->m_isValid = 1;
 		}
-	}
-	fclose(file);
-	return 1;
+		return 1;
 }
 
+// Frees all allocated memory
 void i2cRipExit(int val){
 	if(g_i2cRipCmdListLength > 0){
-		for(int i = 0; i < g_i2cRipCmdListLength; i++){
-			if(g_i2cRipCmdList[i].m_numArgs > 0){
-				free(g_i2cRipCmdList[i].m_args);
-			}
-		}
 		free(g_i2cRipCmdList);
 	}
 	

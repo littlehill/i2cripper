@@ -39,9 +39,11 @@
 
 static int getLine(FILE* file, char* buffer, int size, int* endOfFile);
 
-int parseLine(char* buffer, int size, i2cRipCmdStruct_t *i2cRipData);
+static int parseLine(char* buffer, int size, i2cRipCmdStruct_t *i2cRipData);
 
-static void i2cRipExit(int val);
+int ioCtlIf(int file, struct i2c_rdwr_ioctl_data *rdwr);
+
+static void i2cRipExit(int val)  __attribute__ ((noreturn));
 
 static void help(void) __attribute__ ((noreturn));
 
@@ -56,7 +58,7 @@ static void help(void)
 		"  I2CBUS is an integer or an I2C bus name\n"
 		"  ADDRESS is an integer (0x08 - 0x77, or 0x00 - 0x7f if -a is given)\n"
 		"  VALUE is data to be written / verified\n");
-	exit(1);
+	EXIT(1);
 }
 
 static int check_funcs(int file)
@@ -139,7 +141,7 @@ static int i2cRead(int file, int reg, int dreg, int dregSize, __u8 *data, int da
 	rdwr.msgs = msgs;
 	rdwr.nmsgs = 2;
 
-	int nmsgs_sent = ioctl(file, I2C_RDWR, &rdwr);
+	int nmsgs_sent = ioCtlIf(file, &rdwr);
 
 	if (nmsgs_sent < 0) {
 		fprintf(stderr, "Error: Sending messages failed: %s\n", strerror(errno));
@@ -200,8 +202,8 @@ static int i2cWrite(int file, int reg, int dreg, int dregSize, __u8 *data, int d
 	rdwr.msgs = &msgs;
 	rdwr.nmsgs = 1;
 
-	int nmsgs_sent = ioctl(file, I2C_RDWR, &rdwr);
-
+	int nmsgs_sent = ioCtlIf(file, &rdwr);
+	
 	if (nmsgs_sent < 0) {
 		fprintf(stderr, "Error: Sending messages failed: %s\n", strerror(errno));
 		return 0;
@@ -213,6 +215,10 @@ static int i2cWrite(int file, int reg, int dreg, int dregSize, __u8 *data, int d
 	return 1;
 }
 
+int ioCtlIf(int file, struct i2c_rdwr_ioctl_data *rdwr){
+	return ioctl(file, I2C_RDWR, rdwr);
+}
+
 int inputFileParser(const char* filename);
 
 int main(int argc, char *argv[]){
@@ -220,31 +226,24 @@ int main(int argc, char *argv[]){
 	int read = 0;
 	int verify = 0;
 	int write = 0;
+	int simulate = 0;
+	int quiet = 0;
 	int yes = 0;
 	int file;
 	char filename[20];
+	char *inputFile = NULL;
 
 	const char *maskp = NULL;
 	int vmask = 0;
-	int all_addrs = 0;
 	int opt;
 	int force = 1;
 
-
-	if(!inputFileParser("./tableExample.txt")){
-		fprintf(stderr,"FAILED PARSING FILE\nEXITING\n");
-		EXIT(0);
-	}
-	EXIT(0);
-
 	/* handle (optional) flags first */
-	while ((opt = getopt(argc, argv, "wrvmyh:")) != -1) {
+	while ((opt = getopt(argc, argv, "ysqh:")) != -1) {
 		switch (opt) {
-			case 'w': write = 1; break;
-			case 'r': read = 1; break;
-			case 'v': verify = 1; break;
-			case 'm': maskp = optarg; break;
 			case 'y': yes = 1; break;
+			case 's': simulate = 1; break;
+			case 'q': quiet = 1; break;
 			case 'h':
 			case '?':
 				help();
@@ -252,26 +251,33 @@ int main(int argc, char *argv[]){
 		}
 	}
 
+	if (argc == optind + 1){
+		inputFile = argv[optind];
+		if (access(argv[optind], F_OK) == 0) {
+			fprintf(stderr,"Using %s\n", inputFile);
+		} else {
+			fprintf(stderr,"Cannot find file %s\n", inputFile);
+			help();
+		}
+	}
+	else{
+		fprintf(stderr,"Invalid number of argument.%d : %d\n", argc, optind + 2);
+		help();
+	}
+
+	if(!inputFileParser(inputFile)){
+		fprintf(stderr,"FAILED PARSING FILE\nEXITING\n");
+		EXIT(0);
+	}
+
+	
+	EXIT(0);
+
 	int i2cbus, address, daddress;
 	int value = 0x00;
 
-	if (argc < optind + 3)
-		help();
 
-	i2cbus = lookup_i2c_bus(argv[optind]);
-	if (i2cbus < 0)
-		help();
 
-	address = parse_i2c_address(argv[optind+1], all_addrs);
-	if (address < 0)
-		help();
-
-	daddress = strtol(argv[optind+2], &end, 0);
-	if (*end || daddress < 0 || daddress > 0xff) {
-		fprintf(stderr, "Error: Data address invalid!\n");
-		help();
-	}
-	
 	value = 0;
 	if(write || verify){
 		if (argc <= optind + 3) {
@@ -634,7 +640,7 @@ int parseLine(char* buffer, int size, i2cRipCmdStruct_t *i2cRipData){
 }
 
 // Frees all allocated memory
-void i2cRipExit(int val){
+static void i2cRipExit(int val){
 	if(g_i2cRipCmdListLength > 0){
 		free(g_i2cRipCmdList);
 	}

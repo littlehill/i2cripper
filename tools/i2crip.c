@@ -34,6 +34,8 @@
 #include "../version.h"
 #include "i2crip.h"
 
+i2cRipCmdStruct_t * g_i2cRipCmdList = NULL;
+int g_i2cRipCmdListLength = 0;
 
 #define EXIT(N) i2cRipExit(N)
 
@@ -41,7 +43,9 @@ static int getLine(FILE* file, char* buffer, int size, int* endOfFile);
 
 static int parseLine(char* buffer, int size, i2cRipCmdStruct_t *i2cRipData);
 
-int ioCtlIf(int file, struct i2c_rdwr_ioctl_data *rdwr);
+int inputFileParser(const char* filename);
+
+int ioCtlIf(int file, struct i2c_rdwr_ioctl_data *rdwr, int simulate);
 
 static void i2cRipExit(int val)  __attribute__ ((noreturn));
 
@@ -61,9 +65,13 @@ static void help(void)
 	EXIT(1);
 }
 
-static int check_funcs(int file)
+static int check_funcs(int file, int simulate)
 {
 	unsigned long funcs;
+
+	if(simulate){
+		return 0;
+	}
 
 	/* check adapter functionality */
 	if (ioctl(file, I2C_FUNCS, &funcs) < 0) {
@@ -93,7 +101,14 @@ static int confirm(void)
 	return 1;
 }
 
-static int i2cRead(int file, int reg, int dreg, int dregSize, __u8 *data, int dataSize){
+static int ioCtl_RDWR_If(int file, struct i2c_rdwr_ioctl_data *rdwr, int simulate){
+	if(simulate){
+		return rdwr->nmsgs;
+	}
+	return ioctl(file, I2C_RDWR, rdwr);
+}
+
+static int i2cRead(int file, int reg, int dreg, int dregSize, __u8 *data, int dataSize, int simulate){
 
 	struct i2c_msg msgs[2];
 	__u8 regBuff[2];
@@ -141,7 +156,7 @@ static int i2cRead(int file, int reg, int dreg, int dregSize, __u8 *data, int da
 	rdwr.msgs = msgs;
 	rdwr.nmsgs = 2;
 
-	int nmsgs_sent = ioCtlIf(file, &rdwr);
+	int nmsgs_sent = ioCtl_RDWR_If(file, &rdwr, simulate);
 
 	if (nmsgs_sent < 0) {
 		fprintf(stderr, "Error: Sending messages failed: %s\n", strerror(errno));
@@ -154,7 +169,7 @@ static int i2cRead(int file, int reg, int dreg, int dregSize, __u8 *data, int da
 	return 1;
 }
 
-static int i2cWrite(int file, int reg, int dreg, int dregSize, __u8 *data, int dataSize){
+static int i2cWrite(int file, int reg, int dreg, int dregSize, __u8 *data, int dataSize, int simulate){
 
 	struct i2c_msg msgs;
 	__u8 buff[4];
@@ -202,7 +217,7 @@ static int i2cWrite(int file, int reg, int dreg, int dregSize, __u8 *data, int d
 	rdwr.msgs = &msgs;
 	rdwr.nmsgs = 1;
 
-	int nmsgs_sent = ioCtlIf(file, &rdwr);
+	int nmsgs_sent = ioCtl_RDWR_If(file, &rdwr, simulate);
 	
 	if (nmsgs_sent < 0) {
 		fprintf(stderr, "Error: Sending messages failed: %s\n", strerror(errno));
@@ -215,28 +230,42 @@ static int i2cWrite(int file, int reg, int dreg, int dregSize, __u8 *data, int d
 	return 1;
 }
 
-int ioCtlIf(int file, struct i2c_rdwr_ioctl_data *rdwr){
-	return ioctl(file, I2C_RDWR, rdwr);
+static void logIf(int logToFile, int logToTerm, const char* buff){
+	if(logToFile || logToTerm){
+		// Assemble message
+		if(logToFile){
+			// TODO
+		}
+		if(logToTerm){
+			fprintf(stdout, "%s", buff);
+		}
+	}
 }
 
-int inputFileParser(const char* filename);
+static int open_i2c_dev_If(int i2cBus, char *filename, int  size, int simulate){
+	if(simulate){
+		snprintf(filename, size, "Sim_I2cDev_%d", i2cBus);
+		return 0;
+	}
+	return open_i2c_dev(i2cBus, filename, size, 0);
+}
+
+static int set_slave_addr_If(int file, int address, int simulate){
+	const int force = 1;
+	if(simulate){
+		return 0;
+	}
+	return set_slave_addr(file, address, force);
+}
 
 int main(int argc, char *argv[]){
-	char* end;
-	int read = 0;
-	int verify = 0;
-	int write = 0;
-	int simulate = 0;
+	int simulate = 1;
 	int quiet = 0;
 	int yes = 0;
-	int file;
 	char filename[20];
 	char *inputFile = NULL;
 
-	const char *maskp = NULL;
-	int vmask = 0;
 	int opt;
-	int force = 1;
 
 	/* handle (optional) flags first */
 	while ((opt = getopt(argc, argv, "ysqh:")) != -1) {
@@ -250,6 +279,7 @@ int main(int argc, char *argv[]){
 				exit(opt == '?');
 		}
 	}
+	(void)quiet;
 
 	if (argc == optind + 1){
 		inputFile = argv[optind];
@@ -269,88 +299,277 @@ int main(int argc, char *argv[]){
 		fprintf(stderr,"FAILED PARSING FILE\nEXITING\n");
 		EXIT(0);
 	}
+	fprintf(stderr,"SIMULATING: %s: %d\n",(simulate) ? "True" : "False", simulate);
+	if (!yes && !confirm()){
+		EXIT(0);
+	}
 
+	i2cBusConnection_t i2cBusFiles[I2C_MAX_BUSSES];
+	for(int i = 0; i < I2C_MAX_BUSSES; i++){
+		i2cBusFiles[i].m_isConnected = 0;
+		i2cBusFiles[i].m_slaveAddress = I2C_INVALID_SLAVE_ADDRESS;
+	}
+
+
+	int activeBus = I2C_NO_BUS_SELECTED;
+
+	int error = 0;
+	int errorSupression = 0;
+	int logToFile = 0;
+	int logToTerm = 0;
 	
+	int address;
+	int i2cBus;
+
+	__u16 dAddress = 0;
+	__u8* pData = NULL;
+	int dAddrSize = 0;
+	int dataSize = 0;
+	__u8 readWriteDate[MAX_READ_WRITE_SIZE];
+	__u8 varData[MAX_READ_WRITE_SIZE];
+
+	for(int i = 0; i < g_i2cRipCmdListLength; i++){
+		i2cRipCmds_t cmd = g_i2cRipCmdList[i].m_cmd;
+    	i2cRipCmdData_t* data = &g_i2cRipCmdList[i].m_data;
+		switch(cmd){
+			case I2C_RIP_SET_BUS:
+				i2cBus = data->m_single;
+				if ((i2cBus < 0) || (i2cBus >= I2C_MAX_BUSSES)){
+					// failed
+					fprintf(stderr,"Invalid Bus selection: %d\n", i2cBus);
+					error = 1;
+					break;
+				}
+
+				// If bus open
+				if (i2cBusFiles[i2cBus].m_isConnected == 0){
+					// Open i2c port
+					i2cBusFiles[i2cBus].m_file = open_i2c_dev_If(i2cBus, filename, sizeof(filename), simulate);
+					if (i2cBusFiles[i2cBus].m_file < 0){
+						fprintf(stderr,"Unable to open bus %d\n", i2cBus);
+						error = 1;
+						break;	
+					}
+					if(check_funcs(i2cBusFiles[i2cBus].m_file, simulate)){
+						fprintf(stderr,"Unable to find RDWD Function %d\n", i2cBus);
+						error = 1;
+						break;	
+					}
+					i2cBusFiles[i2cBus].m_isConnected = 1;
+				}
+				activeBus = i2cBus;
+				logIf(logToFile, logToTerm, "SET BUS\n");
+				break;
+
+			case I2C_RIP_SET_ID:
+				address = data->m_single;
+				if ((activeBus < 0) || (activeBus >= I2C_MAX_BUSSES)){
+					fprintf(stderr,"Invalid Active Bus: Out of range %d\n", activeBus);
+					error = 1;
+					break;
+				}
+				if(!i2cBusFiles[activeBus].m_isConnected){
+					fprintf(stderr,"Invalid Active Bus: Not Connected %d\n", activeBus);
+					error = 1;
+					break;
+				}
+				if(set_slave_addr_If(i2cBusFiles[activeBus].m_file, address, simulate)){
+					fprintf(stderr,"Unable to set slave address %d to bus %d\n", address, activeBus);
+					i2cBusFiles[activeBus].m_slaveAddress = I2C_INVALID_SLAVE_ADDRESS;
+					error = 1;
+					break;
+				}
+				i2cBusFiles[activeBus].m_slaveAddress = address;
+				logIf(logToFile, logToTerm, "SET ID\n");
+				break;
+
+			case I2C_RIP_DELAY:
+					fprintf(stderr,"Please Implement delay. Cannot delay %dms\n", data->m_single);
+					logIf(logToFile, logToTerm, "DELAY\n");
+					break;
+
+			case I2C_RIP_ERROR_DETECT:
+				if(!data->m_single){
+					errorSupression = 1;
+					break;
+				}
+				errorSupression = 0;
+				break;
+
+
+			case I2C_RIP_LOG_TO_FILE:
+				if(data->m_single){
+					logToFile = 1;
+					break;
+				}
+				logToFile = 0;
+				break;
+
+			case I2C_RIP_LOG_TO_TERM:
+				if(data->m_single){
+					logToTerm = 1;
+					break;
+				}
+				logToTerm = 0;
+				break;
+
+			case I2C_RIP_8_WRITE_BYTE:
+			case I2C_RIP_8_READ_BYTE:
+			case I2C_RIP_8_VERIFY_BYTE:
+			case I2C_RIP_8_WRITE_WORD:
+			case I2C_RIP_8_READ_WORD:
+			case I2C_RIP_8_VERIFY_WORD:
+			case I2C_RIP_16_WRITE_BYTE:
+			case I2C_RIP_16_READ_BYTE:
+			case I2C_RIP_16_VERIFY_BYTE:
+			case I2C_RIP_16_WRITE_WORD:
+			case I2C_RIP_16_READ_WORD:
+			case I2C_RIP_16_VERIFY_WORD:
+				dAddrSize = 0;
+				dataSize = 0;
+				dAddress = 0;
+				pData = NULL;
+
+				if ((activeBus < 0) || (activeBus >= I2C_MAX_BUSSES)){
+					fprintf(stderr,"Invalid Active Bus: Out of range %d\n", activeBus);
+					error = 1;
+					break;
+				}
+				if(!i2cBusFiles[activeBus].m_isConnected){
+					fprintf(stderr,"Invalid Active Bus: Not Connected %d\n", activeBus);
+					error = 1;
+					break;
+				}
+				switch(cmd){
+					case I2C_RIP_8_VERIFY_BYTE:
+					case I2C_RIP_8_WRITE_BYTE:
+					case I2C_RIP_8_READ_BYTE:
+						dAddrSize = 1;
+						dataSize = 1;
+						dAddress = (__u16)data->m_8_8.m_addr;
+						pData = (__u8*)&data->m_8_8.m_data;
+						break;
+
+
+					case I2C_RIP_8_WRITE_WORD:
+					case I2C_RIP_8_READ_WORD:
+					case I2C_RIP_8_VERIFY_WORD:
+						dAddress = (__u16)data->m_8_16.m_addr;
+						pData = (__u8*)&data->m_8_16.m_data;
+						dAddrSize = 1;
+						dataSize = 2;
+						break;
+
+					case I2C_RIP_16_WRITE_BYTE:
+					case I2C_RIP_16_READ_BYTE:
+					case I2C_RIP_16_VERIFY_BYTE:
+						dAddress = (__u16)data->m_16_8.m_addr;
+						pData = (__u8*)&data->m_16_8.m_data;
+						dAddrSize = 2;
+						dataSize = 1;
+						break;
+
+					case I2C_RIP_16_WRITE_WORD:
+					case I2C_RIP_16_READ_WORD:
+					case I2C_RIP_16_VERIFY_WORD:
+						dAddress = (__u16)data->m_16_16.m_addr;
+						pData = (__u8*)&data->m_16_16.m_data;
+						dAddrSize = 2;
+						dataSize = 2;
+						break;
+
+					default:
+						fprintf(stderr,"Error: Invalid Write/Read/Verify command\n");
+						error = 1;
+						break;
+				}
+
+				if( dataSize >=  MAX_READ_WRITE_SIZE ){
+					fprintf(stderr,"Error: Write/Read/Verify size too large %d\n", dataSize);
+					error = 1;
+					break;
+				}
+
+				// Memcpy would work if we could guarintee endieness
+				for(int j = 0; j < dataSize; j++){
+					readWriteDate[j] = *pData;
+					varData[j] = *pData;
+					pData++;
+				}
+
+				switch(cmd){
+					case I2C_RIP_8_WRITE_BYTE:
+					case I2C_RIP_8_WRITE_WORD:
+					case I2C_RIP_16_WRITE_BYTE:
+					case I2C_RIP_16_WRITE_WORD:
+						if(!i2cWrite(i2cBusFiles[activeBus].m_file, i2cBusFiles[activeBus].m_slaveAddress, dAddress, dAddrSize, pData, dataSize, simulate)){
+							fprintf(stderr,"Write Failed.\n");
+							error = 1;
+						}
+						logIf(logToFile, logToTerm, "WROTE TO BUS\n");
+						break;
+
+					case I2C_RIP_8_READ_BYTE:
+					case I2C_RIP_8_READ_WORD:
+					case I2C_RIP_16_READ_BYTE:
+					case I2C_RIP_16_READ_WORD:
+						if(!i2cRead(i2cBusFiles[activeBus].m_file, i2cBusFiles[activeBus].m_slaveAddress, dAddress, dAddrSize, pData, dataSize, simulate)){
+							fprintf(stderr,"Read Failed.\n");
+							error = 1;
+						}
+						logIf(logToFile, logToTerm, "READ FROM BUS\n");
+						break;
+
+					case I2C_RIP_8_VERIFY_BYTE:
+					case I2C_RIP_8_VERIFY_WORD:
+					case I2C_RIP_16_VERIFY_BYTE:
+					case I2C_RIP_16_VERIFY_WORD:
+						if(!i2cRead(i2cBusFiles[activeBus].m_file, i2cBusFiles[activeBus].m_slaveAddress, dAddress, dAddrSize, pData, dataSize, simulate)){
+							fprintf(stderr,"Read Failed.\n");
+							error = 1;
+							break;
+						}
+						
+						if(memcmp(readWriteDate, varData, dataSize) != 0){
+							fprintf(stderr,"Verification Failed.\n");
+							error = 1;
+						}
+						logIf(logToFile, logToTerm, "VERIFIED FROM BUS\n");
+						break;
+
+					default:
+						fprintf(stderr,"Error: Invalid Write/Read/Verify command\n");
+						error = 1;
+						break;
+				}
+				break;				
+
+			default:
+				fprintf(stderr,"Error: Invalid Write/Read/Verify command\n");
+				error = 1;
+				break;
+		}
+
+		if(error){
+			logIf(logToFile, logToTerm, "VERIFIED FROM BUS\n");
+			if(!errorSupression){
+				break;
+			}
+			error = 0;
+		}
+
+	}
+	
+	if(!simulate){
+		for(int i = 0; i < I2C_MAX_BUSSES; i++){
+			if(i2cBusFiles[i].m_isConnected){
+				close(i2cBusFiles[i].m_file);
+			}
+			i2cBusFiles[i].m_isConnected = 0;
+		}
+	}
+
 	EXIT(0);
-
-	int i2cbus, address, daddress;
-	int value = 0x00;
-
-
-
-	value = 0;
-	if(write || verify){
-		if (argc <= optind + 3) {
-			fprintf(stderr, "Error: No value to write!\n");
-			help();
-		}
-		value = strtol(argv[optind+3], &end, 0);
-		if (*end || value < 0 || value > 0xff) {
-			fprintf(stderr, "Error: Data invalid!\n");
-			help();
-		}
-	}
-
-	if (maskp) {
-		vmask = strtol(maskp, &end, 0);
-		if (*end || vmask == 0) {
-			fprintf(stderr, "Error: Data value mask invalid!\n");
-			help();
-		}
-		// TODO 8bit vs 16 bit mask
-		if (vmask > 0xff) {
-			fprintf(stderr, "Error: Data value mask out of range!\n");
-			help();
-		}
-	}
-
-	// Open i2c port
-	file = open_i2c_dev(i2cbus, filename, sizeof(filename), 0);
-	if (file < 0 ){
-		exit(1);
-	}
-
-	if(check_funcs(file)){
-		exit(1);
-	}
-
-	if(set_slave_addr(file, address, force)){
-		exit(1);
-	}
-
-	if (!yes && !confirm())
-		exit(0);
-
-	if(write || verify){
-		if(!i2cWrite(file, address, daddress, 1, (__u8*)&value, 1)){
-			fprintf(stderr, "Error: Failed to write Register\n");
-			close(file);
-			exit(1);
-		}
-	}
-
-	unsigned char readValue;
-	if (read || verify) {
-		if(!i2cRead(file, address, daddress, 1, (__u8*)&readValue, 1)){
-			fprintf(stderr, "Error: Failed to read Register\n");
-			close(file);
-			exit(1);
-		}
-
-		printf("0x%x\n", readValue);
-	}
-
-	if(verify){
-		if(readValue == value){
-			fprintf(stderr, "Verify Passed\n");
-		}
-		else{
-			fprintf(stderr, "Verify Failed\n");
-		}
-	}
-	//setupRipper()
-	close(file);
-	exit(0);
 }
 
 int inputFileParser(const char* filename){
@@ -405,7 +624,7 @@ int inputFileParser(const char* filename){
         fprintf(stderr, "Memory allocation failed\n");
         return 0;
     }
-	g_i2cRipCmdListLength = lines;
+	g_i2cRipCmdListLength = numOfCmds;
 
 	// INIT
 	for(int i = 0; i < g_i2cRipCmdListLength; i++){
@@ -420,17 +639,24 @@ int inputFileParser(const char* filename){
         return 0;
     }
 
-	// for(int i = 0; i < lines; lines++){
-	// 	if(!getLine(file, buffer, 100, &endOfFile)){
-	// 		fprintf(stderr, "Buffer too small, line number: %d\n", lines);
-	// 		return 0;
-	// 	}
-	// 	if(endOfFile){
-	// 		break;
-	// 	}
-	// }
+	numOfCmds = 0;
+	endOfFile = 0;
+	for(int i = 0; !endOfFile && (numOfCmds < g_i2cRipCmdListLength); i++){
+		if(!getLine(file, buffer, 100, &endOfFile)){
+			fprintf(stderr, "Buffer too small, line number: %d\n", i + 1);
+			return 0;
+		}
+		
+		if(!parseLine(buffer, 100, &g_i2cRipCmdList[numOfCmds])){
+			fprintf(stderr, "Failed to parse line: %d: %s\n", lines + 1, buffer);
+			failed = 1;
+			return 0;
+		}
+		if (g_i2cRipCmdList[numOfCmds].m_isValid){
+			numOfCmds++;
+		}
+	}
 
-	
 	fclose(file);
 	return !failed;
 }
@@ -638,6 +864,8 @@ int parseLine(char* buffer, int size, i2cRipCmdStruct_t *i2cRipData){
 		}
 		return 1;
 }
+
+
 
 // Frees all allocated memory
 static void i2cRipExit(int val){

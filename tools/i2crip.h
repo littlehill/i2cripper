@@ -33,8 +33,20 @@
 #include "util.h"
 #include "../version.h"
 
+#define MAX_READ_WRITE_SIZE 64
+
 #define I2C_RIP_MAX_ARGUMENTS 50
 #define I2C_RIP_LOOKUP_TABLE_SIZE 18
+
+#define I2C_NO_BUS_SELECTED -1
+#define I2C_INVALID_SLAVE_ADDRESS 0xFF
+#define I2C_MAX_BUSSES 10
+
+typedef struct i2cBusConnection {
+	int m_file;
+	int m_isConnected;
+	__u8 m_slaveAddress;
+}i2cBusConnection_t;
 
 typedef enum i2cRipCmds {
 	I2C_RIP_INVALID = -1,
@@ -116,8 +128,5 @@ i2cRipCmdsLookUp_t g_cmdLookUpTable[I2C_RIP_LOOKUP_TABLE_SIZE] = {
 typedef struct i2cRipCmdStruct {
 	i2cRipCmds_t m_cmd;
     i2cRipCmdData_t m_data;
-	int m_isValid;
+	__u8 m_isValid;
 } i2cRipCmdStruct_t;
-
-i2cRipCmdStruct_t * g_i2cRipCmdList = NULL;
-int g_i2cRipCmdListLength = 0;

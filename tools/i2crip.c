@@ -30,6 +30,7 @@
 #include <linux/i2c-dev.h>
 #include <i2c/smbus.h>
 #include <stdarg.h>
+#include <time.h>
 #include "i2cbusses.h"
 #include "util.h"
 #include "../version.h"
@@ -41,13 +42,14 @@
 
 /////////////////////// Global Vars ////////////////////////
 
-static int g_logToTerm = 1;	// Default on
-static int g_logToFile = 0;
-static int g_logFileOpen = 0;
+static __u8 g_logToTerm = 1;	// Default on
+static __u8 g_logToFile = 0;
+static __u8 g_logFileOpen = 0;
 static FILE* g_logFile = NULL;
-static int g_simulate = 0;
-static int g_supressErrors = 0;
-static int g_quietMode = 0;
+static __u8 g_simulate = 0;
+static __u8 g_debug = 0;
+static __u8 g_supressErrors = 0;
+static __u8 g_quietMode = 0;
 static int g_i2cRipCmdListLength = 0;
 static i2cRipCmdStruct_t* g_i2cRipCmdList = NULL;
 static int g_cmdToLineNumberSize = 0;
@@ -409,12 +411,15 @@ static int inputFileParser(const char* filename){
 	g_i2cRipCmdListLength = numOfCmds;
 
 	// Allocate memory for Debugging
-	g_cmdToLineNumber = (int *)malloc(sizeof(int) * numOfCmds);
-	if (g_i2cRipCmdList == NULL) {
-        logErrors("Error: Memory allocation failed\n");
-        return 0;
-    }
-	g_cmdToLineNumberSize = numOfCmds;
+	if(g_debug){
+		g_cmdToLineNumber = (int *)malloc(sizeof(int) * numOfCmds);
+		if (g_i2cRipCmdList == NULL) {
+			logErrors("Error: Memory allocation failed\n");
+			return 0;
+		}
+		g_cmdToLineNumberSize = numOfCmds;
+	}
+
 
 	// INIT
 	for(int i = 0; i < g_i2cRipCmdListLength; i++){
@@ -444,7 +449,9 @@ static int inputFileParser(const char* filename){
 			break;
 		}
 		if (g_i2cRipCmdList[numOfCmds].m_isValid){
-			g_cmdToLineNumber[numOfCmds] = i;
+			if(numOfCmds < g_cmdToLineNumberSize){
+				g_cmdToLineNumber[numOfCmds] = i + 1;
+			}
 			numOfCmds++;
 		}
 	}
@@ -636,11 +643,12 @@ int main(int argc, char *argv[]){
 	int opt;	
 
 	/* handle (optional) flags first */
-	while ((opt = getopt(argc, argv, "ysqh:")) != -1) {
+	while ((opt = getopt(argc, argv, "ysdqh:")) != -1) {
 		switch (opt) {
 			case 'y': yes = 1; break;
 			case 's': g_simulate = 1; break;
 			case 'q': g_quietMode = 1; break;
+			case 'd': g_debug = 1; break;
 			case 'h':
 			case '?':
 				help();
@@ -684,7 +692,6 @@ int main(int argc, char *argv[]){
 	int address;
 	int i2cBus;
 	int activeBus = I2C_NO_BUS_SELECTED;
-	int lineNumber = -1;
 
 	__u16 dAddress = 0;
 	__u8 * pData = NULL;
@@ -696,10 +703,10 @@ int main(int argc, char *argv[]){
 	for(int i = 0; i < g_i2cRipCmdListLength; i++){
 		i2cRipCmds_t cmd = g_i2cRipCmdList[i].m_cmd;
     	i2cRipCmdData_t* data = &g_i2cRipCmdList[i].m_data;
+		char lineNumStr[15] = "";
 
-		lineNumber = -1;
 		if(i < g_cmdToLineNumberSize){
-			lineNumber = g_cmdToLineNumber[i];
+			snprintf(lineNumStr, 15, "Line %d:", g_cmdToLineNumber[i]);
 		}
 
 		switch(cmd){
@@ -707,7 +714,7 @@ int main(int argc, char *argv[]){
 				i2cBus = data->m_single;
 				if ((i2cBus < 0) || (i2cBus >= I2C_MAX_BUSSES)){
 					// failed
-					logErrors("Error: Line %d: Invalid Bus selection: %d\n", lineNumber, i2cBus);
+					logErrors("%sError: Invalid Bus selection: %d\n", lineNumStr, i2cBus);
 					error = 1;
 					break;
 				}
@@ -717,12 +724,12 @@ int main(int argc, char *argv[]){
 					// Open i2c port
 					g_i2cBusFiles[i2cBus].m_file = open_i2c_dev_If(i2cBus, filename, sizeof(filename));
 					if (g_i2cBusFiles[i2cBus].m_file < 0){
-						logErrors("Error: Line %d: Unable to open bus %d\n", lineNumber, i2cBus);
+						logErrors("%sError: Unable to open bus %d\n", lineNumStr, i2cBus);
 						error = 1;
 						break;	
 					}
 					if(check_funcs(g_i2cBusFiles[i2cBus].m_file)){
-						logErrors("Error: Line %d: Unable to find RDWD Function %d\n", lineNumber, i2cBus);
+						logErrors("%sError: Unable to find RDWD Function %d\n", lineNumStr, i2cBus);
 						error = 1;
 						break;	
 					}
@@ -730,35 +737,40 @@ int main(int argc, char *argv[]){
 					g_i2cBusFiles[i2cBus].m_slaveAddress = I2C_INVALID_SLAVE_ADDRESS;
 				}
 				activeBus = i2cBus;
-				logMsg("Line %d: Changed I2cBus %d\n", lineNumber, activeBus);
+				logMsg("%sChanged I2cBus %d\n", lineNumStr, activeBus);
 				break;
 
 			case I2C_RIP_SET_ID:
 				address = data->m_single;
 				if ((activeBus < 0) || (activeBus >= I2C_MAX_BUSSES)){
-					logErrors("Error: Line %d: Invalid Active Bus: Out of range %d\n", lineNumber, activeBus);
+					logErrors("%sError: Invalid Active Bus: Out of range %d\n", lineNumStr, activeBus);
 					error = 1;
 					break;
 				}
 				if(!g_i2cBusFiles[activeBus].m_isConnected){
-					logErrors("Error: Line %d: Invalid Active Bus: Not Connected %d\n", lineNumber, activeBus);
+					logErrors("%sError: Invalid Active Bus: Not Connected %d\n", lineNumStr, activeBus);
 					error = 1;
 					break;
 				}
 				if(set_slave_addr_If(g_i2cBusFiles[activeBus].m_file, address)){
-					logErrors("Error: Line %d: Unable to set slave address %d to bus %d\n", lineNumber, address, activeBus);
+					logErrors("%sError: Unable to set slave address %d to bus %d\n", lineNumStr, address, activeBus);
 					g_i2cBusFiles[activeBus].m_slaveAddress = I2C_INVALID_SLAVE_ADDRESS;
 					error = 1;
 					break;
 				}
 				g_i2cBusFiles[activeBus].m_slaveAddress = address;
-				logMsg("Line %d: Changed Slave addess %x on bus %d\n", lineNumber, g_i2cBusFiles[activeBus].m_slaveAddress, activeBus);
+				logMsg("%sChanged Slave addess %x on bus %d\n", lineNumStr, g_i2cBusFiles[activeBus].m_slaveAddress, activeBus);
 				break;
 
 			case I2C_RIP_DELAY:
-					logErrors("Error: Please Implement delay.\n");
-					logMsg("Line %d: Delay of %dms\n", lineNumber, (int)data->m_single);
+				if(data->m_single <= 0){
+					logErrors("%sError: Invalid Delay time%d.\n");
+					g_supressErrors = 1;
 					break;
+				}
+				logMsg("%sDelay of %dms\n", lineNumStr, (int)data->m_single);
+				usleep((int)data->m_single * 1000);
+				break;
 
 			case I2C_RIP_ERROR_DETECT:
 				if(!data->m_single){
@@ -766,7 +778,7 @@ int main(int argc, char *argv[]){
 					break;
 				}
 				g_supressErrors = 0;
-				logMsg("Line %d: Supress Errors: %s\n", lineNumber, (g_supressErrors) ? "Enabled" : "Disabled");
+				logMsg("%sSupress Errors: %s\n", lineNumStr, (g_supressErrors) ? "Enabled" : "Disabled");
 				break;
 
 
@@ -776,14 +788,14 @@ int main(int argc, char *argv[]){
 					if(g_logFileOpen == 0){
 						g_logFile = fopen(logFileName, "w");
 						if (g_logFile == NULL) {
-							logErrors("Error: Line %d: LogFile: %s could not be opened\n", lineNumber, logFileName);
+							logErrors("%sError: LogFile: %s could not be opened\n", lineNumStr, logFileName);
 							break;
 						}	
 					}
 					g_logToFile = 1;
 					break;
 				}
-				logMsg("Line %d: Logging to file %s: %s\n",lineNumber, logFileName, (g_logToFile) ? "Enabled" : "Disabled");
+				logMsg("%sLogging to file %s: %s\n",lineNumStr, logFileName, (g_logToFile) ? "Enabled" : "Disabled");
 				break;
 
 			case I2C_RIP_LOG_TO_TERM:
@@ -792,7 +804,7 @@ int main(int argc, char *argv[]){
 					g_logToTerm = 1;
 					break;
 				}
-				logMsg("Line %d: Logging to Term: %s\n", lineNumber, (g_logToTerm) ? "Enabled" : "Disabled");
+				logMsg("%sLogging to Term: %s\n", lineNumStr, (g_logToTerm) ? "Enabled" : "Disabled");
 				break;
 
 			case I2C_RIP_8_WRITE_BYTE:
@@ -813,17 +825,17 @@ int main(int argc, char *argv[]){
 				pData = NULL;
 
 				if ((activeBus < 0) || (activeBus >= I2C_MAX_BUSSES)){
-					logErrors("Error: Line %d: Invalid Active Bus: Out of range %d\n",  lineNumber, activeBus);
+					logErrors("%sError: Invalid Active Bus: Out of range %#x\n",  lineNumStr, activeBus);
 					error = 1;
 					break;
 				}
 				if(!g_i2cBusFiles[activeBus].m_isConnected){
-					logErrors("Error: Line %d: Invalid Active Bus: Not Connected %d\n", lineNumber, activeBus);
+					logErrors("%sError: Invalid Active Bus: Not Connected %#x\n", lineNumStr, activeBus);
 					error = 1;
 					break;
 				}
 				if(g_i2cBusFiles[activeBus].m_slaveAddress == I2C_INVALID_SLAVE_ADDRESS){
-					logErrors("Error: Line %d: Invalid slave address %d\n", lineNumber, g_i2cBusFiles[activeBus].m_slaveAddress);
+					logErrors("%sError: Invalid slave address %#x\n", lineNumStr, g_i2cBusFiles[activeBus].m_slaveAddress);
 					error = 1;
 					break;
 				}
@@ -867,13 +879,13 @@ int main(int argc, char *argv[]){
 						break;
 
 					default:
-						logErrors("Error: Line %d: Invalid Write/Read/Verify command\n", lineNumber);
+						logErrors("%sError: Invalid Write/Read/Verify command\n", lineNumStr);
 						error = 1;
 						break;
 				}
 
 				if( dataSize >=  MAX_READ_WRITE_SIZE ){
-					logErrors("Error: Line %d: Write/Read/Verify size too large %d\n", lineNumber, dataSize);
+					logErrors("%sError: Write/Read/Verify size too large %d\n", lineNumStr, dataSize);
 					error = 1;
 					break;
 				}
@@ -891,12 +903,12 @@ int main(int argc, char *argv[]){
 					case I2C_RIP_16_WRITE_BYTE:
 					case I2C_RIP_16_WRITE_WORD:
 						if(!i2cWrite(g_i2cBusFiles[activeBus].m_file, g_i2cBusFiles[activeBus].m_slaveAddress, dAddress, dAddrSize, readWriteDate, dataSize)){
-							logErrors("Error: Line %d: Failed to Write. Bus: %d, Address: %#x\n", lineNumber, activeBus, g_i2cBusFiles[activeBus].m_slaveAddress);
+							logErrors("%sError: Failed to Write. Bus: %d, Address: %#x\n", lineNumStr, activeBus, g_i2cBusFiles[activeBus].m_slaveAddress);
 							error = 1;
 							break;
 						}
 						if(IS_LOG_ENABLED){
-							logMsg("Line %d: Writing %d byte(s). Reg %d byte(s) long. %#x\n\tDATA:", lineNumber, lineNumber, dataSize, dAddrSize, dAddress);
+							logMsg("%sWriting %d byte(s). Reg %d byte(s) long. %#x\n\tDATA:", lineNumStr, dataSize, dAddrSize, dAddress);
 							for (int j = 0; j < dataSize; j++){
 								logMsg("%#04x,", readWriteDate[j]);
 							}
@@ -909,12 +921,12 @@ int main(int argc, char *argv[]){
 					case I2C_RIP_16_READ_BYTE:
 					case I2C_RIP_16_READ_WORD:
 						if(!i2cRead(g_i2cBusFiles[activeBus].m_file, g_i2cBusFiles[activeBus].m_slaveAddress, dAddress, dAddrSize, readWriteDate, dataSize)){
-							logErrors("Error: Line %d: Failed to Read. Bus: %d, Address: %#x\n", lineNumber, activeBus, g_i2cBusFiles[activeBus].m_slaveAddress);
+							logErrors("%sError: Failed to Read. Bus: %d, Address: %#x\n", lineNumStr, activeBus, g_i2cBusFiles[activeBus].m_slaveAddress);
 							error = 1;
 							break;
 						}
 						if(IS_LOG_ENABLED){
-							logMsg("Line %d: Reading %d byte(s). Reg %d byte(s) long. %#x\n\tDATA:", lineNumber, dataSize, dAddrSize, dAddress);
+							logMsg("%sReading %d byte(s). Reg %d byte(s) long. %#x\n\tDATA:", lineNumStr, dataSize, dAddrSize, dAddress);
 							for (int j = 0; j < dataSize; j++){
 								logMsg("%#04x,", readWriteDate[j]);
 							}
@@ -927,7 +939,7 @@ int main(int argc, char *argv[]){
 					case I2C_RIP_16_VERIFY_BYTE:
 					case I2C_RIP_16_VERIFY_WORD:
 						if(!i2cRead(g_i2cBusFiles[activeBus].m_file, g_i2cBusFiles[activeBus].m_slaveAddress, dAddress, dAddrSize, readWriteDate, dataSize)){
-							logErrors("Error: Line %d: Failed to Verify. Bus: %d, Address: %#x\n", lineNumber, activeBus, g_i2cBusFiles[activeBus].m_slaveAddress);
+							logErrors("%sError: Failed to Verify. Bus: %d, Address: %#x\n", lineNumStr, activeBus, g_i2cBusFiles[activeBus].m_slaveAddress);
 							error = 1;
 							break;
 						}
@@ -936,7 +948,7 @@ int main(int argc, char *argv[]){
 							error = 1;
 						}
 						if(IS_LOG_ENABLED){
-							logMsg("Line %d: Verifing %d byte(s). Reg %d byte(s) long. %#x\n\tDATA:", lineNumber, dataSize, dAddrSize, dAddress);
+							logMsg("%sVerifing %d byte(s). Reg %d byte(s) long. %#x\n\tDATA:", lineNumStr, dataSize, dAddrSize, dAddress);
 							for (int j = 0; j < dataSize; j++){
 								logMsg("%#04x,", readWriteDate[j]);
 							}
@@ -949,14 +961,14 @@ int main(int argc, char *argv[]){
 						break;
 
 					default:
-						logErrors("Error: Line %d: Invalid Write/Read/Verify command\n", lineNumber);
+						logErrors("%sError: Invalid Write/Read/Verify command\n", lineNumStr);
 						error = 1;
 						break;
 				}
 				break;				
 
 			default:
-				logErrors("Error: Line %d: Invalid Write/Read/Verify command\n", lineNumber);
+				logErrors("%sError: Invalid Write/Read/Verify command\n", lineNumStr);
 				error = 1;
 				break;
 		}
@@ -968,7 +980,7 @@ int main(int argc, char *argv[]){
 		}
 		error = 0;
 	}
-	printToTerm("Exiting: I2cRip %s\n", (error) ? "FAILED" : " was SUCCESSFUL");
+	printToTerm("Exiting: I2cRip %s\n", (error) ? "FAILED" : "was SUCCESSFUL");
 
 	EXIT(0);
 }

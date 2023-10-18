@@ -42,6 +42,8 @@
 #define I2C_INVALID_SLAVE_ADDRESS 0xFF
 #define I2C_MAX_BUSSES 10
 
+#define EXIT(N) i2cRipExit(N)
+
 typedef struct i2cBusConnection {
 	int m_file;
 	int m_isConnected;

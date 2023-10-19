@@ -40,7 +40,7 @@
 
 #define I2C_NO_BUS_SELECTED -1
 #define I2C_INVALID_SLAVE_ADDRESS 0xFF
-#define I2C_MAX_BUSSES 10
+#define I2C_MAX_BUSSES 64
 
 #define EXIT(N) i2cRipExit(N)
 

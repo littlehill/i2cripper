@@ -493,13 +493,28 @@ static int ioCtlRdwrIf(int file, struct i2c_rdwr_ioctl_data *rdwr){
 }
 
 // i2cRead function to be called by main program
-static int i2cRead(int file, int reg, int dreg, int dregSize, __u8 *data, int dataSize){
+// dReg and data must be MSB - LSB in array
+static int i2cRead(int file, int reg, __u8* dReg, int dRegSize, __u8 *data, int dataSize){
 
 	struct i2c_msg msgs[2];
-	__u8 regBuff[2];
 
-	if( 0 > reg || reg > 0xff){
-		logErrors("Error: Read Failed, Register size invalid: %d", dregSize);
+	if( 0 > reg || reg > 0x7f){
+		logErrors("Error: Read Failed, Register size invalid: %d", reg);
+		return 0;
+	}
+
+	if(dataSize + dRegSize >= MAX_READ_WRITE_SIZE){
+		logErrors("Error: Read Failed, Size invalid: %d", dataSize + dRegSize);
+		return 0;
+	}
+
+	if(dRegSize <= 0){
+		logErrors("Error: Read Failed, dRegSize invalid: %d", dRegSize);
+		return 0;
+	}
+
+	if(dataSize <= 0){
+		logErrors("Error: Read Failed, dataSize invalid: %d", dataSize);
 		return 0;
 	}
 
@@ -512,30 +527,12 @@ static int i2cRead(int file, int reg, int dreg, int dregSize, __u8 *data, int da
 	msgs[1].flags = I2C_M_RD;
 
 	// Point to respected buffers
-	msgs[0].buf = regBuff;
+	msgs[0].buf = dReg;
 	msgs[1].buf = data;
 
 	// Message length
-	msgs[0].len = dregSize;
+	msgs[0].len = dRegSize;
 	msgs[1].len = dataSize;
-
-	switch(dregSize){
-		case 2:
-			regBuff[0] = (__u8)(dreg & 0xFF00) >> 8;
-			regBuff[1] = (__u8)(dreg & 0xFF);
-			break;
-		case 1:
-			regBuff[0] = (__u8)(dreg & 0xFF);
-			break;
-		default:
-			logErrors("Error: Read Failed, Register size invalid: %d", dregSize);
-			return 0;
-	}
-
-	if(0 > dataSize || dataSize > 2){
-		logErrors("Error: Read Failed, Data size invalid: %d", dataSize);
-		return 0;
-	}
 
 	struct i2c_rdwr_ioctl_data rdwr;
 	rdwr.msgs = msgs;
@@ -555,16 +552,34 @@ static int i2cRead(int file, int reg, int dreg, int dregSize, __u8 *data, int da
 }
 
 // i2cWrite function to be called by main program
-static int i2cWrite(int file, int reg, int dreg, int dregSize, __u8 *data, int dataSize){
+// dReg and data must be MSB - LSB in array
+static int i2cWrite(int file, int reg,  __u8* dReg, int dRegSize, __u8 *data, int dataSize){
 
 	struct i2c_msg msgs;
-	__u8 buff[4];
+	__u8 buff[MAX_READ_WRITE_SIZE];
 
-	if( 0 > reg || reg > 0xff){
-		logErrors("Error: Write Failed, Register size invalid: %d", dregSize);
+	if( 0 > reg || reg > 0x7f){
+		logErrors("Error: Read Failed, Register size invalid: %d", reg);
 		return 0;
 	}
 
+	if(dataSize + dRegSize >= MAX_READ_WRITE_SIZE){
+		logErrors("Error: Write Failed, Size invalid: %d", dataSize + dRegSize);
+		return 0;
+	}
+
+	if(dRegSize <= 0){
+		logErrors("Error: Write Failed, dRegSize invalid: %d", dRegSize);
+		return 0;
+	}
+
+	if(dataSize <= 0){
+		logErrors("Error: Write Failed, dataSize invalid: %d", dataSize);
+		return 0;
+	}
+
+	memcpy(buff, dReg, dRegSize);
+	memcpy(&buff[dRegSize], data, dataSize);
 	// Add device ID register
 	msgs.addr = reg;
 
@@ -574,31 +589,10 @@ static int i2cWrite(int file, int reg, int dreg, int dregSize, __u8 *data, int d
 	// Point to respected buffers
 	msgs.buf = buff;
 
-	int index = 0;
-	switch(dregSize){
-		case 2:
-			buff[index++] = (__u8)(dreg & 0xFF00) >> 8;
-			buff[index++] = (__u8)(dreg & 0xFF);
-			break;
-		case 1:
-			buff[index++] = (__u8)(dreg & 0xFF);
-			break;
-		default:
-			logErrors("Error: Read Failed, Register size invalid: %d", dregSize);
-			return 0;
-	}
-
-	if(0 > dataSize || dataSize > 2){
-		logErrors("Error: Read Failed, Data size invalid: %d", dataSize);
-		return 0;
-	}
-	for(int i = 0; i < dataSize; i++){
-		buff[index++] = data[i];
-	}
-
 	// Message length
-	msgs.len = index;
-
+	msgs.len = dRegSize + dataSize;
+	logMsg("SIZE %d:%d:%d\n", msgs.len, dRegSize, dataSize);
+	
 	struct i2c_rdwr_ioctl_data rdwr;
 	rdwr.msgs = &msgs;
 	rdwr.nmsgs = 1;
@@ -693,11 +687,10 @@ int main(int argc, char *argv[]){
 	int i2cBus;
 	int activeBus = I2C_NO_BUS_SELECTED;
 
-	__u16 dAddress = 0;
-	__u8 * pData = NULL;
-	int dAddrSize = 0;
+	int dRegSize = 0;
 	int dataSize = 0;
-	__u8 readWriteDate[MAX_READ_WRITE_SIZE];
+	__u8 dRegData[MAX_DREG_SIZE];
+	__u8 readWriteData[MAX_READ_WRITE_SIZE];
 	__u8 varData[MAX_READ_WRITE_SIZE];
 
 	for(int i = 0; i < g_i2cRipCmdListLength; i++){
@@ -753,7 +746,7 @@ int main(int argc, char *argv[]){
 					break;
 				}
 				if(set_slave_addr_If(g_i2cBusFiles[activeBus].m_file, address)){
-					logErrors("%sError: Unable to set slave address %d to bus %d\n", lineNumStr, address, activeBus);
+					logErrors("%sError: Unable to set slave address 0x%x to bus %d\n", lineNumStr, address, activeBus);
 					g_i2cBusFiles[activeBus].m_slaveAddress = I2C_INVALID_SLAVE_ADDRESS;
 					error = 1;
 					break;
@@ -819,23 +812,21 @@ int main(int argc, char *argv[]){
 			case I2C_RIP_16_WRITE_WORD:
 			case I2C_RIP_16_READ_WORD:
 			case I2C_RIP_16_VERIFY_WORD:
-				dAddrSize = 0;
+				dRegSize = 0;
 				dataSize = 0;
-				dAddress = 0;
-				pData = NULL;
 
 				if ((activeBus < 0) || (activeBus >= I2C_MAX_BUSSES)){
-					logErrors("%sError: Invalid Active Bus: Out of range %#x\n",  lineNumStr, activeBus);
+					logErrors("%sError: Invalid Active Bus: Out of range 0x%x\n",  lineNumStr, activeBus);
 					error = 1;
 					break;
 				}
 				if(!g_i2cBusFiles[activeBus].m_isConnected){
-					logErrors("%sError: Invalid Active Bus: Not Connected %#x\n", lineNumStr, activeBus);
+					logErrors("%sError: Invalid Active Bus: Not Connected 0x%x\n", lineNumStr, activeBus);
 					error = 1;
 					break;
 				}
 				if(g_i2cBusFiles[activeBus].m_slaveAddress == I2C_INVALID_SLAVE_ADDRESS){
-					logErrors("%sError: Invalid slave address %#x\n", lineNumStr, g_i2cBusFiles[activeBus].m_slaveAddress);
+					logErrors("%sError: Invalid slave address 0x%x\n", lineNumStr, g_i2cBusFiles[activeBus].m_slaveAddress);
 					error = 1;
 					break;
 				}
@@ -844,38 +835,42 @@ int main(int argc, char *argv[]){
 					case I2C_RIP_8_VERIFY_BYTE:
 					case I2C_RIP_8_WRITE_BYTE:
 					case I2C_RIP_8_READ_BYTE:
-						dAddrSize = 1;
+						dRegSize = 1;
 						dataSize = 1;
-						dAddress = (__u16)data->m_8_8.m_addr;
-						pData = (__u8*)&data->m_8_8.m_data;
+						dRegData[0] = (__u16)data->m_8_8.m_addr;
+						readWriteData[0] = (__u8)data->m_8_8.m_data;
 						break;
 
 
 					case I2C_RIP_8_WRITE_WORD:
 					case I2C_RIP_8_READ_WORD:
 					case I2C_RIP_8_VERIFY_WORD:
-						dAddress = (__u16)data->m_8_16.m_addr;
-						pData = (__u8*)&data->m_8_16.m_data;
-						dAddrSize = 1;
+						dRegSize = 1;
 						dataSize = 2;
+						dRegData[0] = (__u16)data->m_8_16.m_addr;
+						readWriteData[0] = (__u8)((data->m_8_16.m_data >> 8) & 0xFF);
+						readWriteData[1] = (__u8)(data->m_8_16.m_data & 0xFF);
 						break;
 
 					case I2C_RIP_16_WRITE_BYTE:
 					case I2C_RIP_16_READ_BYTE:
 					case I2C_RIP_16_VERIFY_BYTE:
-						dAddress = (__u16)data->m_16_8.m_addr;
-						pData = (__u8*)&data->m_16_8.m_data;
-						dAddrSize = 2;
+						dRegSize = 2;
 						dataSize = 1;
+						dRegData[0] = (__u8)((data->m_16_8.m_addr >> 8) & 0xFF);
+						dRegData[1] = (__u8)(data->m_16_8.m_addr & 0xFF);
+						readWriteData[0] = (__u8)data->m_16_8.m_data;
 						break;
 
 					case I2C_RIP_16_WRITE_WORD:
 					case I2C_RIP_16_READ_WORD:
 					case I2C_RIP_16_VERIFY_WORD:
-						dAddress = (__u16)data->m_16_16.m_addr;
-						pData = (__u8*)&data->m_16_16.m_data;
-						dAddrSize = 2;
+						dRegSize = 2;
 						dataSize = 2;
+						dRegData[0] = (__u8)((data->m_16_16.m_addr >> 8) & 0xFF);
+						dRegData[1] = (__u8)(data->m_16_16.m_addr & 0xFF);
+						readWriteData[0] = (__u8)((data->m_16_16.m_data >> 8) & 0xFF);
+						readWriteData[1] = (__u8)(data->m_16_16.m_data & 0xFF);
 						break;
 
 					default:
@@ -890,27 +885,24 @@ int main(int argc, char *argv[]){
 					break;
 				}
 
-				// Memcpy would work if we could guarintee endieness
-				for(int j = 0; j < dataSize; j++){
-					readWriteDate[j] = *pData;
-					varData[j] = *pData;
-					pData++;
-				}
-
 				switch(cmd){
 					case I2C_RIP_8_WRITE_BYTE:
 					case I2C_RIP_8_WRITE_WORD:
 					case I2C_RIP_16_WRITE_BYTE:
 					case I2C_RIP_16_WRITE_WORD:
-						if(!i2cWrite(g_i2cBusFiles[activeBus].m_file, g_i2cBusFiles[activeBus].m_slaveAddress, dAddress, dAddrSize, readWriteDate, dataSize)){
-							logErrors("%sError: Failed to Write. Bus: %d, Address: %#x\n", lineNumStr, activeBus, g_i2cBusFiles[activeBus].m_slaveAddress);
+						if(!i2cWrite(g_i2cBusFiles[activeBus].m_file, g_i2cBusFiles[activeBus].m_slaveAddress, dRegData, dRegSize, readWriteData, dataSize)){
+							logErrors("%sError: Failed to Write. Bus: %d, Address: 0x%x\n", lineNumStr, activeBus, g_i2cBusFiles[activeBus].m_slaveAddress);
 							error = 1;
 							break;
 						}
 						if(IS_LOG_ENABLED){
-							logMsg("%sWriting %d Byte(s). %d Byte register %#06x\n\tDATA:", lineNumStr, dataSize, dAddrSize, dAddress);
+							logMsg("%sWriting %d Byte(s).\n\tREG:", lineNumStr, dataSize);
+							for (int j = 0; j < dRegSize; j++){
+								logMsg("0x%02x,", dRegData[j]);
+							}
+							logMsg("\tData:");
 							for (int j = 0; j < dataSize; j++){
-								logMsg("%#04x,", readWriteDate[j]);
+								logMsg("0x%02x,", readWriteData[j]);
 							}
 							logMsg("\n");
 						}
@@ -920,15 +912,19 @@ int main(int argc, char *argv[]){
 					case I2C_RIP_8_READ_WORD:
 					case I2C_RIP_16_READ_BYTE:
 					case I2C_RIP_16_READ_WORD:
-						if(!i2cRead(g_i2cBusFiles[activeBus].m_file, g_i2cBusFiles[activeBus].m_slaveAddress, dAddress, dAddrSize, readWriteDate, dataSize)){
-							logErrors("%sError: Failed to Read. Bus: %d, Address: %#x\n", lineNumStr, activeBus, g_i2cBusFiles[activeBus].m_slaveAddress);
+						if(!i2cRead(g_i2cBusFiles[activeBus].m_file, g_i2cBusFiles[activeBus].m_slaveAddress, dRegData, dRegSize, readWriteData, dataSize)){
+							logErrors("%sError: Failed to Read. Bus: %d, Address: 0x%x\n", lineNumStr, activeBus, g_i2cBusFiles[activeBus].m_slaveAddress);
 							error = 1;
 							break;
 						}
 						if(IS_LOG_ENABLED){
-							logMsg("%sReading %d Byte(s). %d Byte register %#06x\n\tDATA:", lineNumStr, dataSize, dAddrSize, dAddress);
+							logMsg("%sReading %d Byte(s).\n\tREG:", lineNumStr, dataSize);
+							for (int j = 0; j < dRegSize; j++){
+								logMsg("0x%02x,", dRegData[j]);
+							}
+							logMsg("\tData:");
 							for (int j = 0; j < dataSize; j++){
-								logMsg("%#04x,", readWriteDate[j]);
+								logMsg("0x%02x/0x%02x,", readWriteData[j],varData[j]);
 							}
 							logMsg("\n");
 						}
@@ -938,25 +934,39 @@ int main(int argc, char *argv[]){
 					case I2C_RIP_8_VERIFY_WORD:
 					case I2C_RIP_16_VERIFY_BYTE:
 					case I2C_RIP_16_VERIFY_WORD:
-						if(!i2cRead(g_i2cBusFiles[activeBus].m_file, g_i2cBusFiles[activeBus].m_slaveAddress, dAddress, dAddrSize, readWriteDate, dataSize)){
-							logErrors("%sError: Failed to Verify. Bus: %d, Address: %#x\n", lineNumStr, activeBus, g_i2cBusFiles[activeBus].m_slaveAddress);
+						memcpy(varData, readWriteData, dataSize); 
+						if(!i2cRead(g_i2cBusFiles[activeBus].m_file, g_i2cBusFiles[activeBus].m_slaveAddress, dRegData, dRegSize, readWriteData, dataSize)){
+							logErrors("%sError: Failed to Verify. Bus: %d, Address: 0x%x\n", lineNumStr, activeBus, g_i2cBusFiles[activeBus].m_slaveAddress);
 							error = 1;
 							break;
 						}
 						
-						if(memcmp(readWriteDate, varData, dataSize) != 0){
+						if(memcmp(readWriteData, varData, dataSize) != 0){
 							error = 1;
 						}
+
 						if(IS_LOG_ENABLED){
-							logMsg("%sVerifing %d Byte(s). %d Byte register %#06x\n\tDATA:", lineNumStr, dataSize, dAddrSize, dAddress);
-							for (int j = 0; j < dataSize; j++){
-								logMsg("%#04x,", readWriteDate[j]);
+							logMsg("%sVerifying %d Byte(s).\n\tREG:", lineNumStr, dataSize);
+							for (int j = 0; j < dRegSize; j++){
+								logMsg("0x%02x,", dRegData[j]);
 							}
-							logMsg("\n\tCTRL:");
+							logMsg("\tData:");
 							for (int j = 0; j < dataSize; j++){
-								logMsg("%#04x,", varData[j]);
+								logMsg("0x%02x,", readWriteData[j]);
 							}
 							logMsg("\n");
+							if(error){
+								logMsg("Verifying FAILED\n");
+								logMsg("\tExpected Data:");
+								for (int j = 0; j < dataSize; j++){
+									logMsg("0x%02x,", varData[j]);
+								}
+								logMsg("\n");
+							}
+							else{
+								logMsg("Verifying PASSED\n");
+							}
+							
 						}
 						break;
 

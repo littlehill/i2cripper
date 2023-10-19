@@ -34,6 +34,7 @@
 #include "../version.h"
 
 #define MAX_READ_WRITE_SIZE 64
+#define MAX_DREG_SIZE 2
 
 #define I2C_RIP_MAX_ARGUMENTS 50
 #define I2C_RIP_LOOKUP_TABLE_SIZE 18

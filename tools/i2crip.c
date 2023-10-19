@@ -246,13 +246,13 @@ static int parseLine(char* buffer, int size, i2cRipCmdStruct_t *i2cRipData){
 								case I2C_RIP_8_WRITE_WORD:
 								case I2C_RIP_8_READ_WORD:
 								case I2C_RIP_8_VERIFY_WORD:
-									i2cRipData->m_data.m_8_16.m_addr = (__u16)num;
+									i2cRipData->m_data.m_8_16.m_addr = (__u8)num;
 									break;
 
 								case I2C_RIP_16_WRITE_BYTE:
 								case I2C_RIP_16_READ_BYTE:
 								case I2C_RIP_16_VERIFY_BYTE:
-									i2cRipData->m_data.m_16_8.m_addr = (__u8)num;
+									i2cRipData->m_data.m_16_8.m_addr = (__u16)num;
 									break;
 
 								case I2C_RIP_16_WRITE_WORD:
@@ -908,7 +908,7 @@ int main(int argc, char *argv[]){
 							break;
 						}
 						if(IS_LOG_ENABLED){
-							logMsg("%sWriting %d byte(s). Reg %d byte(s) long. %#x\n\tDATA:", lineNumStr, dataSize, dAddrSize, dAddress);
+							logMsg("%sWriting %d Byte(s). %d Byte register %#06x\n\tDATA:", lineNumStr, dataSize, dAddrSize, dAddress);
 							for (int j = 0; j < dataSize; j++){
 								logMsg("%#04x,", readWriteDate[j]);
 							}
@@ -926,7 +926,7 @@ int main(int argc, char *argv[]){
 							break;
 						}
 						if(IS_LOG_ENABLED){
-							logMsg("%sReading %d byte(s). Reg %d byte(s) long. %#x\n\tDATA:", lineNumStr, dataSize, dAddrSize, dAddress);
+							logMsg("%sReading %d Byte(s). %d Byte register %#06x\n\tDATA:", lineNumStr, dataSize, dAddrSize, dAddress);
 							for (int j = 0; j < dataSize; j++){
 								logMsg("%#04x,", readWriteDate[j]);
 							}
@@ -948,7 +948,7 @@ int main(int argc, char *argv[]){
 							error = 1;
 						}
 						if(IS_LOG_ENABLED){
-							logMsg("%sVerifing %d byte(s). Reg %d byte(s) long. %#x\n\tDATA:", lineNumStr, dataSize, dAddrSize, dAddress);
+							logMsg("%sVerifing %d Byte(s). %d Byte register %#06x\n\tDATA:", lineNumStr, dataSize, dAddrSize, dAddress);
 							for (int j = 0; j < dataSize; j++){
 								logMsg("%#04x,", readWriteDate[j]);
 							}

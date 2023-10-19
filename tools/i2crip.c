@@ -591,7 +591,6 @@ static int i2cWrite(int file, int reg,  __u8* dReg, int dRegSize, __u8 *data, in
 
 	// Message length
 	msgs.len = dRegSize + dataSize;
-	logMsg("SIZE %d:%d:%d\n", msgs.len, dRegSize, dataSize);
 	
 	struct i2c_rdwr_ioctl_data rdwr;
 	rdwr.msgs = &msgs;

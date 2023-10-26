@@ -129,6 +129,7 @@ static void help(void){
 		"    -s (Simulate)\n"
 		"    -q (Quiet)\n"
 		"    -h (Help)\n"
+		"    -v (Version)\n"
 		"  FILELOCATION is the path to the intput file\n");
 	EXIT(1);
 }
@@ -642,20 +643,27 @@ int main(int argc, char *argv[]){
 	char filename[20];
 	char logFileName[20] = "i2cRip.log";
 	char *inputFile = NULL;
+	int version = 0;
 	int opt;	
 
 	/* handle (optional) flags first */
-	while ((opt = getopt(argc, argv, "ysdqh:")) != -1) {
+	while ((opt = getopt(argc, argv, "ysdqvh:")) != -1) {
 		switch (opt) {
 			case 'y': yes = 1; break;
 			case 's': g_simulate = 1; break;
 			case 'q': g_quietMode = 1; break;
 			case 'd': g_debug = 1; break;
+			case 'v': version = 1; break;
 			case 'h':
 			case '?':
 				help();
 				EXIT(opt == '?');
 		}
+	}
+
+	if (version) {
+		printToTerm("i2c-Rip Version: v%s\n", VERSION_I2CRIP);
+		EXIT(0);
 	}
 
 	if (argc == optind + 1){

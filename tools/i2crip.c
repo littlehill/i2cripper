@@ -163,6 +163,16 @@ static int parseLine(char* buffer, int size, i2cRipCmdStruct_t *i2cRipData){
 				break;
 			}
 
+			// Ignore anything after "//" for comments
+			if(buffer[i] == '/'){
+				if(i + 1 < size){
+					if(buffer[i + 1] == '/'){
+						buffer[i] = '\0';
+					}
+				}
+			}
+
+
 			// If found argument
 			if((buffer[i] == ' ') || (buffer[i] == '\0') || (buffer[i] == '\t')){
 				if(buffer[i] == '\0'){
@@ -224,7 +234,7 @@ static int parseLine(char* buffer, int size, i2cRipCmdStruct_t *i2cRipData){
 						return 0;
 					}
 
-					switch(argNum){
+					switch(argNum++){
 						// First Argument
 						case 0:
 							switch(i2cRipData->m_cmd){
@@ -304,7 +314,6 @@ static int parseLine(char* buffer, int size, i2cRipCmdStruct_t *i2cRipData){
 							logErrors("Error: Invalid arguemts %s\n", subString);
 							return 0;
 					}
-					argNum++;
 				}
 			}
 		}
@@ -726,10 +735,10 @@ int main(int argc, char *argv[]){
 						break;	
 					}
 					g_i2cBusFiles[i2cBus].m_isConnected = 1;
-					g_i2cBusFiles[i2cBus].m_slaveAddress = I2C_INVALID_SLAVE_ADDRESS;
 				}
 				activeBus = i2cBus;
-				logMsg("%sChanged I2cBus %d\n", lineNumStr, activeBus);
+				g_i2cBusFiles[i2cBus].m_slaveAddress = I2C_INVALID_SLAVE_ADDRESS;
+				logMsg("%sChanged I2cBus to bus %d\n", lineNumStr, activeBus);
 				break;
 
 			case I2C_RIP_SET_ID:
@@ -751,7 +760,7 @@ int main(int argc, char *argv[]){
 					break;
 				}
 				g_i2cBusFiles[activeBus].m_slaveAddress = address;
-				logMsg("%sChanged Slave addess %x on bus %d\n", lineNumStr, g_i2cBusFiles[activeBus].m_slaveAddress, activeBus);
+				logMsg("%sChanged Slave addess %#x on bus %d\n", lineNumStr, g_i2cBusFiles[activeBus].m_slaveAddress, activeBus);
 				break;
 
 			case I2C_RIP_DELAY:

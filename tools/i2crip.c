@@ -131,7 +131,36 @@ static void help(void){
 		"    -h (Help)\n"
 		"    -v (Version)\n"
 		"  FILELOCATION is the path to the intput file\n");
-	EXIT(1);
+}
+
+// Help function returns a message on how to use i2cRip
+static void bigHelp(void) {
+    help();
+    printToTerm(
+        "I2cTool Commands:\n"
+        "  SET-BUS <bus_number>: Set the I2C bus to the specified bus number.\n"
+        "  SET-ID <device_address>: Set the I2C device ID to the specified address.\n"
+        "  SUPPRESS-ERRORS [1|0]: Enable (1) to suppress errors, or (0) to enable error detection.\n"
+        "  LOG-FILE [1|0]: Enable (1) to log data to 'i2cRip.log', or (0) to disable data logging (default location).\n"
+        "  LOG-TERM [1|0]: Enable (1) to log data to the terminal, or (0) to disable terminal logging.\n"
+        "  DELAY <milliseconds>: Create a specified duration delay in milliseconds.\n"
+        "  RB-8 <register_address>: Read 1 byte from the 8-bit address.\n"
+        "  RB-16 <register_address>: Read 1 byte from the 16-bit address.\n"
+        "  RW-8 <register_address>: Read 1 word (2 bytes) from the 8-bit address.\n"
+        "  RW-16 <register_address>: Read 1 word (2 bytes) from the 16-bit address.\n"
+        "  WB-8 <register_address> <data>: Write 1 byte to the 8-bit address.\n"
+        "  WB-16 <register_address> <data>: Write 1 byte to the 16-bit address.\n"
+        "  WW-8 <register_address> <data>: Write 1 word (2 bytes) to the 8-bit address.\n"
+        "  WW-16 <register_address> <data>: Write 1 word (2 bytes) to the 16-bit address.\n"
+        "  VB-8 <register_address> <expected_data>: Read 1 byte and compare it to the expected data.\n"
+        "  VB-16 <register_address> <expected_data>: Read 1 byte and compare it to the expected data.\n"
+        "  VW-8 <register_address> <expected_data>: Read 2 bytes and compare them to the expected data.\n"
+        "  VW-16 <register_address> <expected_data>: Read 2 bytes and compare them to the expected data.\n"
+        "  Use '0x' prefix for hexadecimal numbers throughout the script.\n"
+        "  You can add comments using '//' within the command list.\n"
+        "\n"
+    );
+    EXIT(0);
 }
 
 // User Comfirmation
@@ -172,7 +201,6 @@ static int parseLine(char* buffer, int size, i2cRipCmdStruct_t *i2cRipData){
 					}
 				}
 			}
-
 
 			// If found argument
 			if((buffer[i] == ' ') || (buffer[i] == '\0') || (buffer[i] == '\t')){
@@ -242,7 +270,7 @@ static int parseLine(char* buffer, int size, i2cRipCmdStruct_t *i2cRipData){
 								case I2C_RIP_SET_BUS:
 								case I2C_RIP_SET_ID:
 								case I2C_RIP_DELAY:
-								case I2C_RIP_ERROR_DETECT:
+								case I2C_RIP_SUPRESS_ERRORS:
 								case I2C_RIP_LOG_TO_FILE:
 								case I2C_RIP_LOG_TO_TERM:
 									i2cRipData->m_data.m_single = (int)num;
@@ -647,7 +675,7 @@ int main(int argc, char *argv[]){
 	int opt;	
 
 	/* handle (optional) flags first */
-	while ((opt = getopt(argc, argv, "ysdqvh:")) != -1) {
+	while ((opt = getopt(argc, argv, "ysqdv:h")) != -1) {
 		switch (opt) {
 			case 'y': yes = 1; break;
 			case 's': g_simulate = 1; break;
@@ -655,9 +683,13 @@ int main(int argc, char *argv[]){
 			case 'd': g_debug = 1; break;
 			case 'v': version = 1; break;
 			case 'h':
+				bigHelp();
+				EXIT(0);
+				break;
 			case '?':
 				help();
-				EXIT(opt == '?');
+				EXIT(0);
+				break;
 		}
 	}
 
@@ -669,15 +701,17 @@ int main(int argc, char *argv[]){
 	if (argc == optind + 1){
 		inputFile = argv[optind];
 		if (access(argv[optind], F_OK) == 0) {
-			logErrors("Error: Using %s\n", inputFile);
+			logErrors("Using %s\n", inputFile);
 		} else {
 			logErrors("Error: Cannot find file %s\n", inputFile);
 			help();
+			EXIT(0);
 		}
 	}
 	else{
 		logErrors("Error: Invalid number of argument.%d : %d\n", argc, optind + 2);
 		help();
+		EXIT(0);
 	}
 
 	if(!inputFileParser(inputFile)){
@@ -781,8 +815,8 @@ int main(int argc, char *argv[]){
 				usleep((int)data->m_single * 1000);
 				break;
 
-			case I2C_RIP_ERROR_DETECT:
-				if(!data->m_single){
+			case I2C_RIP_SUPRESS_ERRORS:
+				if(data->m_single){
 					g_supressErrors = 1;
 					break;
 				}
@@ -940,7 +974,7 @@ int main(int argc, char *argv[]){
 							}
 							logMsg("\tData:");
 							for (int j = 0; j < dataSize; j++){
-								logMsg("0x%02x/0x%02x,", readWriteData[j],varData[j]);
+								logMsg("0x%02x,", readWriteData[j]);
 							}
 							logMsg("\n");
 						}

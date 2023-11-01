@@ -1,0 +1,19 @@
+// Example I2cRip Command List
+SET-BUS 1              // Set the I2C bus to bus number 1
+SET-ID 0x68            // Set the I2C device ID to 0x68
+SUPRESS-ERRORS 0       // Disable error detection
+LOG-FILE 1             // Disable data logging
+LOG-TERM 1             // Enable terminal logging
+DELAY 10               // Create a 10ms delay
+RB-8 0x12              // Read 1 byte from 8-bit address 0x12
+RB-16 0x1234           // Read 1 byte from 16-bit address 0x1234
+RW-8 0x12              // Read 1 word from 8-bit address 0x12
+RW-16 0x1234           // Read 1 word from 16-bit address 0x1234
+WB-8 0x12 0x34         // Write 1 byte to 8-bit address 0x12
+WB-16 0x1234 0x5678    // Write 1 byte to 16-bit address 0x1234
+WW-8 0x12 0x3456       // Write 1 word to 8-bit address 0x12
+WW-16 0x1234 0x789A    // Write 1 word to 16-bit address 0x1234
+VB-8 0x12 0x34         // Read 1 byte and compare to 0x34 at 8-bit address 0x12
+VB-16 0x1234 0x5678    // Read 1 byte and compare to 0x5678 at 16-bit address 0x1234
+VW-8 0x12 0x3456       // Read 2 bytes and compare to 0x3456 at 8-bit address 0x12
+VW-16 0x1234 0x789A    // Read 2 bytes and compare to 0x789A at 16-bit address 0x1234
